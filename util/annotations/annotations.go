@@ -157,7 +157,16 @@ func NewBadBucketLabelWarning(metricName, label string, pos posrange.PositionRan
 func NewMixedFloatsHistogramsWarning(metricName string, pos posrange.PositionRange) error {
 	return annoErr{
 		PositionRange: pos,
-		Err:           fmt.Errorf("%w %q", MixedFloatsHistogramsWarning, metricName),
+		Err:           fmt.Errorf("%w metric name %q", MixedFloatsHistogramsWarning, metricName),
+	}
+}
+
+// NewMixedFloatsHistogramsAggWarning is used when the queried series includes both
+// float samples and histogram samples in an aggregation.
+func NewMixedFloatsHistogramsAggWarning(pos posrange.PositionRange) error {
+	return annoErr{
+		PositionRange: pos,
+		Err:           fmt.Errorf("%w aggregation", MixedFloatsHistogramsWarning),
 	}
 }
 

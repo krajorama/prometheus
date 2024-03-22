@@ -32,6 +32,7 @@ import (
 
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/util/stats"
+	"github.com/prometheus/prometheus/util/testutil"
 
 	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
@@ -597,7 +598,7 @@ func TestGetSeries(t *testing.T) {
 				r := res.data.([]labels.Labels)
 				sort.Sort(byLabels(tc.expected))
 				sort.Sort(byLabels(r))
-				require.Equal(t, tc.expected, r)
+				testutil.RequireEqual(t, tc.expected, r)
 			}
 		})
 	}
@@ -1053,8 +1054,9 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 		params                map[string]string
 		query                 url.Values
 		response              interface{}
-		responseLen           int
+		responseLen           int // If nonzero, check only the length; `response` is ignored.
 		responseMetadataTotal int
+		responseAsJSON        string
 		errType               errorType
 		sorter                func(interface{})
 		metadata              []targetMetadata
@@ -1386,6 +1388,15 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				labels.FromStrings("__name__", "test_metric2", "foo", "boo"),
 			},
 		},
+		// Series request with limit.
+		{
+			endpoint: api.series,
+			query: url.Values{
+				"match[]": []string{"test_metric1"},
+				"limit":   []string{"1"},
+			},
+			responseLen: 1, // API does not specify which particular value will come back.
+		},
 		// Missing match[] query params in series requests.
 		{
 			endpoint: api.series,
@@ -1713,6 +1724,9 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				"prometheus_engine_query_duration_seconds": {{Type: model.MetricTypeSummary, Help: "Query timings", Unit: ""}},
 				"go_info": {{Type: model.MetricTypeGauge, Help: "Information about the Go environment.", Unit: ""}},
 			},
+			responseAsJSON: `{"prometheus_engine_query_duration_seconds":[{"type":"summary","unit":"",
+"help":"Query timings"}], "go_info":[{"type":"gauge","unit":"",
+"help":"Information about the Go environment."}]}`,
 		},
 		// With duplicate metadata for a metric that comes from different targets.
 		{
@@ -1744,6 +1758,8 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 			response: map[string][]metadata.Metadata{
 				"go_threads": {{Type: model.MetricTypeGauge, Help: "Number of OS threads created"}},
 			},
+			responseAsJSON: `{"go_threads": [{"type":"gauge","unit":"",
+"help":"Number of OS threads created"}]}`,
 		},
 		// With non-duplicate metadata for the same metric from different targets.
 		{
@@ -1778,6 +1794,9 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					{Type: model.MetricTypeGauge, Help: "Number of OS threads that were created."},
 				},
 			},
+			responseAsJSON: `{"go_threads": [{"type":"gauge","unit":"",
+"help":"Number of OS threads created"},{"type":"gauge","unit":"",
+"help":"Number of OS threads that were created."}]}`,
 			sorter: func(m interface{}) {
 				v := m.(map[string][]metadata.Metadata)["go_threads"]
 
@@ -1805,7 +1824,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 						{
 							Metric: "prometheus_engine_query_duration_seconds",
 							Type:   model.MetricTypeSummary,
-							Help:   "Query Timmings.",
+							Help:   "Query Timings.",
 							Unit:   "",
 						},
 					},
@@ -1861,6 +1880,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					{Type: model.MetricTypeSummary, Help: "A summary of the GC invocation durations."},
 				},
 			},
+			responseAsJSON: `{"go_gc_duration_seconds":[{"help":"A summary of the GC invocation durations.","type":"summary","unit":""}],"go_threads": [{"type":"gauge","unit":"","help":"Number of OS threads created"}]}`,
 		},
 		// With a limit for the number of metadata per metric and per metric.
 		{
@@ -1984,6 +2004,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					{Type: model.MetricTypeGauge, Help: "Number of OS threads that were created."},
 				},
 			},
+			responseAsJSON: `{"go_threads": [{"type":"gauge","unit":"","help":"Number of OS threads created"},{"type":"gauge","unit":"","help":"Number of OS threads that were created."}]}`,
 			sorter: func(m interface{}) {
 				v := m.(map[string][]metadata.Metadata)["go_threads"]
 
@@ -2648,6 +2669,17 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					"boo",
 				},
 			},
+			// Label values with limit.
+			{
+				endpoint: api.labelValues,
+				params: map[string]string{
+					"name": "__name__",
+				},
+				query: url.Values{
+					"limit": []string{"2"},
+				},
+				responseLen: 2, // API does not specify which particular values will come back.
+			},
 			// Label names.
 			{
 				endpoint: api.labelNames,
@@ -2787,6 +2819,14 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				},
 				response: []string{"__name__", "foo"},
 			},
+			// Label names with limit.
+			{
+				endpoint: api.labelNames,
+				query: url.Values{
+					"limit": []string{"2"},
+				},
+				responseLen: 2, // API does not specify which particular values will come back.
+			},
 		}...)
 	}
 
@@ -2853,6 +2893,12 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 						}
 						assertAPIResponse(t, res.data, test.response)
 					}
+
+					if test.responseAsJSON != "" {
+						s, err := json.Marshal(res.data)
+						require.NoError(t, err)
+						require.JSONEq(t, test.responseAsJSON, string(s))
+					}
 				})
 			}
 		})
@@ -2878,7 +2924,7 @@ func assertAPIError(t *testing.T, got *apiError, exp errorType) {
 func assertAPIResponse(t *testing.T, got, exp interface{}) {
 	t.Helper()
 
-	require.Equal(t, exp, got)
+	testutil.RequireEqual(t, exp, got)
 }
 
 func assertAPIResponseLength(t *testing.T, got interface{}, expLen int) {
@@ -3522,6 +3568,9 @@ func TestReturnAPIError(t *testing.T) {
 		}, {
 			err:      errors.New("exec error"),
 			expected: errorExec,
+		}, {
+			err:      context.Canceled,
+			expected: errorCanceled,
 		},
 	}
 
@@ -3834,8 +3883,6 @@ func TestQueryTimeout(t *testing.T) {
 type fakeEngine struct {
 	query fakeQuery
 }
-
-func (e *fakeEngine) SetQueryLogger(promql.QueryLogger) {}
 
 func (e *fakeEngine) NewInstantQuery(ctx context.Context, q storage.Queryable, opts promql.QueryOpts, qs string, ts time.Time) (promql.Query, error) {
 	return &e.query, nil

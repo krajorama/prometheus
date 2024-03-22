@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/gogo/protobuf/proto"
+	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	config_util "github.com/prometheus/common/config"
@@ -277,6 +279,7 @@ func TestScrapePoolReload(t *testing.T) {
 		logger:        nil,
 		client:        http.DefaultClient,
 		metrics:       newTestScrapeMetrics(t),
+		symbolTable:   labels.NewSymbolTable(),
 	}
 
 	// Reloading a scrape pool with a new scrape configuration must stop all scrape
@@ -355,10 +358,11 @@ func TestScrapePoolReloadPreserveRelabeledIntervalTimeout(t *testing.T) {
 		loops: map[uint64]loop{
 			1: noopLoop(),
 		},
-		newLoop: newLoop,
-		logger:  nil,
-		client:  http.DefaultClient,
-		metrics: newTestScrapeMetrics(t),
+		newLoop:     newLoop,
+		logger:      nil,
+		client:      http.DefaultClient,
+		metrics:     newTestScrapeMetrics(t),
+		symbolTable: labels.NewSymbolTable(),
 	}
 
 	err := sp.reload(reloadCfg)
@@ -389,6 +393,7 @@ func TestScrapePoolTargetLimit(t *testing.T) {
 		logger:        log.NewNopLogger(),
 		client:        http.DefaultClient,
 		metrics:       newTestScrapeMetrics(t),
+		symbolTable:   labels.NewSymbolTable(),
 	}
 
 	tgs := []*targetgroup.Group{}
@@ -621,6 +626,7 @@ func TestScrapePoolScrapeLoopsStarted(t *testing.T) {
 		logger:        nil,
 		client:        http.DefaultClient,
 		metrics:       newTestScrapeMetrics(t),
+		symbolTable:   labels.NewSymbolTable(),
 	}
 
 	tgs := []*targetgroup.Group{
@@ -658,6 +664,7 @@ func newBasicScrapeLoop(t testing.TB, ctx context.Context, scraper scraper, app 
 		nopMutator,
 		app,
 		nil,
+		labels.NewSymbolTable(),
 		0,
 		true,
 		false,
@@ -797,6 +804,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -940,6 +948,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 		nopMutator,
 		func(ctx context.Context) storage.Appender { return nopAppender{} },
 		cache,
+		labels.NewSymbolTable(),
 		0,
 		true,
 		false,
@@ -1059,6 +1068,7 @@ func makeTestMetrics(n int) []byte {
 		fmt.Fprintf(&sb, "# HELP metric_a help text\n")
 		fmt.Fprintf(&sb, "metric_a{foo=\"%d\",bar=\"%d\"} 1\n", i, i*100)
 	}
+	fmt.Fprintf(&sb, "# EOF\n")
 	return sb.Bytes()
 }
 
@@ -1331,7 +1341,7 @@ func TestScrapeLoopAppend(t *testing.T) {
 			// Honor Labels should ignore labels with the same name.
 			title:           "Honor Labels",
 			honorLabels:     true,
-			scrapeLabels:    `metric{n1="1" n2="2"} 0`,
+			scrapeLabels:    `metric{n1="1", n2="2"} 0`,
 			discoveryLabels: []string{"n1", "0"},
 			expLset:         labels.FromStrings("__name__", "metric", "n1", "1", "n2", "2"),
 			expValue:        0,
@@ -1341,7 +1351,7 @@ func TestScrapeLoopAppend(t *testing.T) {
 			scrapeLabels:    `metric NaN`,
 			discoveryLabels: nil,
 			expLset:         labels.FromStrings("__name__", "metric"),
-			expValue:        float64(value.NormalNaN),
+			expValue:        math.Float64frombits(value.NormalNaN),
 		},
 	}
 
@@ -1375,16 +1385,15 @@ func TestScrapeLoopAppend(t *testing.T) {
 			},
 		}
 
-		// When the expected value is NaN
-		// DeepEqual will report NaNs as being different,
-		// so replace it with the expected one.
-		if test.expValue == float64(value.NormalNaN) {
-			app.resultFloats[0].f = expected[0].f
-		}
-
 		t.Logf("Test:%s", test.title)
-		require.Equal(t, expected, app.resultFloats)
+		requireEqual(t, expected, app.resultFloats)
 	}
+}
+
+func requireEqual(t *testing.T, expected, actual interface{}, msgAndArgs ...interface{}) {
+	testutil.RequireEqualWithOptions(t, expected, actual,
+		[]cmp.Option{cmp.Comparer(equalFloatSamples), cmp.AllowUnexported(histogramSample{})},
+		msgAndArgs...)
 }
 
 func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
@@ -1406,7 +1415,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 		},
 		"One target label collides with existing label, plus existing label already with prefix 'exported": {
 			targetLabels:  []string{"foo", "3"},
-			exposedLabels: `metric{foo="1" exported_foo="2"} 0`,
+			exposedLabels: `metric{foo="1", exported_foo="2"} 0`,
 			expected:      []string{"__name__", "metric", "exported_exported_foo", "1", "exported_foo", "2", "foo", "3"},
 		},
 		"One target label collides with existing label, both already with prefix 'exported'": {
@@ -1416,7 +1425,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 		},
 		"Two target labels collide with existing labels, both with and without prefix 'exported'": {
 			targetLabels:  []string{"foo", "3", "exported_foo", "4"},
-			exposedLabels: `metric{foo="1" exported_foo="2"} 0`,
+			exposedLabels: `metric{foo="1", exported_foo="2"} 0`,
 			expected: []string{
 				"__name__", "metric", "exported_exported_foo", "1", "exported_exported_exported_foo",
 				"2", "exported_foo", "4", "foo", "3",
@@ -1424,7 +1433,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 		},
 		"Extreme example": {
 			targetLabels:  []string{"foo", "0", "exported_exported_foo", "1", "exported_exported_exported_foo", "2"},
-			exposedLabels: `metric{foo="3" exported_foo="4" exported_exported_exported_foo="5"} 0`,
+			exposedLabels: `metric{foo="3", exported_foo="4", exported_exported_exported_foo="5"} 0`,
 			expected: []string{
 				"__name__", "metric",
 				"exported_exported_exported_exported_exported_foo", "5",
@@ -1450,7 +1459,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 
 			require.NoError(t, slApp.Commit())
 
-			require.Equal(t, []floatSample{
+			requireEqual(t, []floatSample{
 				{
 					metric: labels.FromStrings(tc.expected...),
 					t:      timestamp.FromTime(time.Date(2000, 1, 1, 1, 0, 0, 0, time.UTC)),
@@ -1469,7 +1478,7 @@ func TestScrapeLoopAppendCacheEntryButErrNotFound(t *testing.T) {
 	fakeRef := storage.SeriesRef(1)
 	expValue := float64(1)
 	metric := []byte(`metric{n="1"} 1`)
-	p, warning := textparse.New(metric, "", false)
+	p, warning := textparse.New(metric, "", false, labels.NewSymbolTable())
 	require.NoError(t, warning)
 
 	var lset labels.Labels
@@ -1544,7 +1553,7 @@ func TestScrapeLoopAppendSampleLimit(t *testing.T) {
 			f:      1,
 		},
 	}
-	require.Equal(t, want, resApp.rolledbackFloats, "Appended samples not as expected:\n%s", appender)
+	requireEqual(t, want, resApp.rolledbackFloats, "Appended samples not as expected:\n%s", appender)
 
 	now = time.Now()
 	slApp = sl.appender(context.Background())
@@ -1684,7 +1693,6 @@ func TestScrapeLoop_ChangingMetricString(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, slApp.Commit())
 
-	// DeepEqual will report NaNs as being different, so replace with a different value.
 	want := []floatSample{
 		{
 			metric: labels.FromStrings("__name__", "metric_a", "a", "1", "b", "1"),
@@ -1716,11 +1724,6 @@ func TestScrapeLoopAppendStaleness(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, slApp.Commit())
 
-	ingestedNaN := math.Float64bits(app.resultFloats[1].f)
-	require.Equal(t, value.StaleNaN, ingestedNaN, "Appended stale sample wasn't as expected")
-
-	// DeepEqual will report NaNs as being different, so replace with a different value.
-	app.resultFloats[1].f = 42
 	want := []floatSample{
 		{
 			metric: labels.FromStrings(model.MetricNameLabel, "metric_a"),
@@ -1730,10 +1733,10 @@ func TestScrapeLoopAppendStaleness(t *testing.T) {
 		{
 			metric: labels.FromStrings(model.MetricNameLabel, "metric_a"),
 			t:      timestamp.FromTime(now.Add(time.Second)),
-			f:      42,
+			f:      math.Float64frombits(value.StaleNaN),
 		},
 	}
-	require.Equal(t, want, app.resultFloats, "Appended samples not as expected:\n%s", appender)
+	requireEqual(t, want, app.resultFloats, "Appended samples not as expected:\n%s", appender)
 }
 
 func TestScrapeLoopAppendNoStalenessIfTimestamp(t *testing.T) {
@@ -1776,8 +1779,6 @@ func TestScrapeLoopAppendStalenessIfTrackTimestampStaleness(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, slApp.Commit())
 
-	// DeepEqual will report NaNs as being different, so replace with a different value.
-	app.resultFloats[1].f = 42
 	want := []floatSample{
 		{
 			metric: labels.FromStrings(model.MetricNameLabel, "metric_a"),
@@ -1787,10 +1788,10 @@ func TestScrapeLoopAppendStalenessIfTrackTimestampStaleness(t *testing.T) {
 		{
 			metric: labels.FromStrings(model.MetricNameLabel, "metric_a"),
 			t:      timestamp.FromTime(now.Add(time.Second)),
-			f:      42,
+			f:      math.Float64frombits(value.StaleNaN),
 		},
 	}
-	require.Equal(t, want, app.resultFloats, "Appended samples not as expected:\n%s", appender)
+	requireEqual(t, want, app.resultFloats, "Appended samples not as expected:\n%s", appender)
 }
 
 func TestScrapeLoopAppendExemplar(t *testing.T) {
@@ -2158,9 +2159,9 @@ metric: <
 			_, _, _, err := sl.append(app, buf.Bytes(), test.contentType, now)
 			require.NoError(t, err)
 			require.NoError(t, app.Commit())
-			require.Equal(t, test.floats, app.resultFloats)
-			require.Equal(t, test.histograms, app.resultHistograms)
-			require.Equal(t, test.exemplars, app.resultExemplars)
+			requireEqual(t, test.floats, app.resultFloats)
+			requireEqual(t, test.histograms, app.resultHistograms)
+			requireEqual(t, test.exemplars, app.resultExemplars)
 		})
 	}
 }
@@ -2215,8 +2216,8 @@ func TestScrapeLoopAppendExemplarSeries(t *testing.T) {
 		require.NoError(t, app.Commit())
 	}
 
-	require.Equal(t, samples, app.resultFloats)
-	require.Equal(t, exemplars, app.resultExemplars)
+	requireEqual(t, samples, app.resultFloats)
+	requireEqual(t, exemplars, app.resultExemplars)
 }
 
 func TestScrapeLoopRunReportsTargetDownOnScrapeError(t *testing.T) {
@@ -2292,7 +2293,7 @@ func TestScrapeLoopAppendGracefullyIfAmendOrOutOfOrderOrOutOfBounds(t *testing.T
 			f:      1,
 		},
 	}
-	require.Equal(t, want, app.resultFloats, "Appended samples not as expected:\n%s", appender)
+	requireEqual(t, want, app.resultFloats, "Appended samples not as expected:\n%s", appender)
 	require.Equal(t, 4, total)
 	require.Equal(t, 4, added)
 	require.Equal(t, 1, seriesAdded)
@@ -2635,6 +2636,9 @@ func TestScrapeLoopDiscardDuplicateLabels(t *testing.T) {
 	_, _, _, err := sl.append(slApp, []byte("test_metric{le=\"500\"} 1\ntest_metric{le=\"600\",le=\"700\"} 1\n"), "", time.Time{})
 	require.Error(t, err)
 	require.NoError(t, slApp.Rollback())
+	// We need to cycle staleness cache maps after a manual rollback. Otherwise they will have old entries in them,
+	// which would cause ErrDuplicateSampleForTimestamp errors on the next append.
+	sl.cache.iterDone(true)
 
 	q, err := s.Querier(time.Time{}.UnixNano(), 0)
 	require.NoError(t, err)
@@ -2971,7 +2975,7 @@ func TestReuseCacheRace(t *testing.T) {
 func TestCheckAddError(t *testing.T) {
 	var appErrs appendErrors
 	sl := scrapeLoop{l: log.NewNopLogger(), metrics: newTestScrapeMetrics(t)}
-	sl.checkAddError(nil, nil, nil, storage.ErrOutOfOrderSample, nil, nil, &appErrs)
+	sl.checkAddError(nil, storage.ErrOutOfOrderSample, nil, nil, &appErrs)
 	require.Equal(t, 1, appErrs.numOutOfOrder)
 }
 
@@ -3525,4 +3529,105 @@ func TestPickSchema(t *testing.T) {
 		schema := pickSchema(tc.factor)
 		require.Equal(t, tc.schema, schema)
 	}
+}
+
+func BenchmarkTargetScraperGzip(b *testing.B) {
+	scenarios := []struct {
+		metricsCount int
+		body         []byte
+	}{
+		{metricsCount: 1},
+		{metricsCount: 100},
+		{metricsCount: 1000},
+		{metricsCount: 10000},
+		{metricsCount: 100000},
+	}
+
+	for i := 0; i < len(scenarios); i++ {
+		var buf bytes.Buffer
+		var name string
+		gw := gzip.NewWriter(&buf)
+		for j := 0; j < scenarios[i].metricsCount; j++ {
+			name = fmt.Sprintf("go_memstats_alloc_bytes_total_%d", j)
+			fmt.Fprintf(gw, "# HELP %s Total number of bytes allocated, even if freed.\n", name)
+			fmt.Fprintf(gw, "# TYPE %s counter\n", name)
+			fmt.Fprintf(gw, "%s %d\n", name, i*j)
+		}
+		gw.Close()
+		scenarios[i].body = buf.Bytes()
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", `text/plain; version=0.0.4`)
+		w.Header().Set("Content-Encoding", "gzip")
+		for _, scenario := range scenarios {
+			if strconv.Itoa(scenario.metricsCount) == r.URL.Query()["count"][0] {
+				w.Write(scenario.body)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	})
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		panic(err)
+	}
+
+	client, err := config_util.NewClientFromConfig(config_util.DefaultHTTPClientConfig, "test_job")
+	if err != nil {
+		panic(err)
+	}
+
+	for _, scenario := range scenarios {
+		b.Run(fmt.Sprintf("metrics=%d", scenario.metricsCount), func(b *testing.B) {
+			ts := &targetScraper{
+				Target: &Target{
+					labels: labels.FromStrings(
+						model.SchemeLabel, serverURL.Scheme,
+						model.AddressLabel, serverURL.Host,
+					),
+					params: url.Values{"count": []string{strconv.Itoa(scenario.metricsCount)}},
+				},
+				client:  client,
+				timeout: time.Second,
+			}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err = ts.scrape(context.Background())
+				require.NoError(b, err)
+			}
+		})
+	}
+}
+
+// When a scrape contains multiple instances for the same time series we should increment
+// prometheus_target_scrapes_sample_duplicate_timestamp_total metric.
+func TestScrapeLoopSeriesAddedDuplicates(t *testing.T) {
+	ctx, sl := simpleTestScrapeLoop(t)
+
+	slApp := sl.appender(ctx)
+	total, added, seriesAdded, err := sl.append(slApp, []byte("test_metric 1\ntest_metric 2\ntest_metric 3\n"), "", time.Time{})
+	require.NoError(t, err)
+	require.NoError(t, slApp.Commit())
+	require.Equal(t, 3, total)
+	require.Equal(t, 3, added)
+	require.Equal(t, 1, seriesAdded)
+
+	slApp = sl.appender(ctx)
+	total, added, seriesAdded, err = sl.append(slApp, []byte("test_metric 1\ntest_metric 1\ntest_metric 1\n"), "", time.Time{})
+	require.NoError(t, err)
+	require.NoError(t, slApp.Commit())
+	require.Equal(t, 3, total)
+	require.Equal(t, 3, added)
+	require.Equal(t, 0, seriesAdded)
+
+	metric := dto.Metric{}
+	err = sl.metrics.targetScrapeSampleDuplicate.Write(&metric)
+	require.NoError(t, err)
+	value := metric.GetCounter().GetValue()
+	require.Equal(t, 4.0, value)
 }

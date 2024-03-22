@@ -681,6 +681,34 @@ func TestDB_Snapshot(t *testing.T) {
 	require.Equal(t, 1000.0, sum)
 }
 
+func TestDB_BeyondTimeRetention(t *testing.T) {
+	opts := DefaultOptions()
+	opts.RetentionDuration = 100
+	db := openTestDB(t, opts, nil)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	// We have 4 blocks, 3 of which are beyond the retention duration.
+	metas := []BlockMeta{
+		{MinTime: 300, MaxTime: 500},
+		{MinTime: 200, MaxTime: 300},
+		{MinTime: 100, MaxTime: 200},
+		{MinTime: 0, MaxTime: 100},
+	}
+
+	for _, m := range metas {
+		createBlock(t, db.Dir(), genSeries(1, 1, m.MinTime, m.MaxTime))
+	}
+
+	// Reloading should truncate the 3 blocks which are >= the retention period.
+	require.NoError(t, db.reloadBlocks())
+	blocks := db.Blocks()
+	require.Len(t, blocks, 1)
+	require.Equal(t, metas[0].MinTime, blocks[0].Meta().MinTime)
+	require.Equal(t, metas[0].MaxTime, blocks[0].Meta().MaxTime)
+}
+
 // TestDB_Snapshot_ChunksOutsideOfCompactedRange ensures that a snapshot removes chunks samples
 // that are outside the set block time range.
 // See https://github.com/prometheus/prometheus/issues/5105
@@ -3598,7 +3626,7 @@ func testChunkQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChun
 	// just to iterate through the bytes slice. We don't really care the reason why
 	// we read this data, we just need to read it to make sure the memory address
 	// of the []byte is still valid.
-	chkCRC32 := newCRC32()
+	chkCRC32 := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 	for _, chunk := range chunks {
 		chkCRC32.Reset()
 		_, err := chkCRC32.Write(chunk.Bytes())
@@ -4031,7 +4059,7 @@ func TestOOOWALWrite(t *testing.T) {
 
 		var (
 			records []interface{}
-			dec     record.Decoder
+			dec     record.Decoder = record.NewDecoder(labels.NewSymbolTable())
 		)
 		for r.Next() {
 			rec := r.Record()
@@ -4058,11 +4086,11 @@ func TestOOOWALWrite(t *testing.T) {
 
 	// The normal WAL.
 	actRecs := getRecords(path.Join(dir, "wal"))
-	require.Equal(t, inOrderRecords, actRecs)
+	testutil.RequireEqual(t, inOrderRecords, actRecs)
 
 	// The WBL.
 	actRecs = getRecords(path.Join(dir, wlog.WblDirName))
-	require.Equal(t, oooRecords, actRecs)
+	testutil.RequireEqual(t, oooRecords, actRecs)
 }
 
 // Tests https://github.com/prometheus/prometheus/issues/10291#issuecomment-1044373110.
@@ -4945,7 +4973,7 @@ func Test_Querier_OOOQuery(t *testing.T) {
 			require.NotNil(t, seriesSet[series1.String()])
 			require.Len(t, seriesSet, 1)
 			require.Equal(t, expSamples, seriesSet[series1.String()])
-			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			requireEqualOOOSamples(t, oooSamples, db)
 		})
 	}
 }
@@ -5028,7 +5056,7 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 			chks := queryChunks(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 			require.NotNil(t, chks[series1.String()])
 			require.Len(t, chks, 1)
-			require.Equal(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			requireEqualOOOSamples(t, oooSamples, db)
 			var gotSamples []chunks.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
@@ -5107,7 +5135,7 @@ func TestOOOAppendAndQuery(t *testing.T) {
 			}
 		}
 		require.Equal(t, expSamples, seriesSet)
-		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+		requireEqualOOOSamples(t, totalSamples-2, db)
 	}
 
 	verifyOOOMinMaxTimes := func(expMin, expMax int64) {
@@ -5216,7 +5244,7 @@ func TestOOODisabled(t *testing.T) {
 
 	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
 	require.Equal(t, expSamples, seriesSet)
-	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	requireEqualOOOSamples(t, 0, db)
 	require.Equal(t, float64(failedSamples),
 		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat)),
 		"number of ooo/oob samples mismatch")
@@ -5390,7 +5418,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
-		var dec record.Decoder
+		dec := record.NewDecoder(labels.NewSymbolTable())
 		r, markers, addedRecs := wlog.NewReader(sr), 0, 0
 		for r.Next() {
 			rec := r.Record()
@@ -6942,4 +6970,10 @@ Outer:
 	}
 
 	require.NoError(t, writerErr)
+}
+
+func requireEqualOOOSamples(t *testing.T, expectedSamples int, db *DB) {
+	require.Equal(t, float64(expectedSamples),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended.WithLabelValues(sampleMetricTypeFloat)),
+		"number of ooo appended samples mismatch")
 }
