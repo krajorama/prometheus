@@ -15,7 +15,7 @@ package tsdb
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 
 	"github.com/oklog/ulid"
@@ -24,28 +24,26 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
-type ColumnarCompactorOptions struct {
-}
+type ColumnarCompactorOptions struct{}
 
 func NewColumnarCompactorWithOptions(ctx context.Context, r prometheus.Registerer, l *slog.Logger, ranges []int64, pool chunkenc.Pool, opts ColumnarCompactorOptions) (*ColumnarCompactor, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 
 // ColumnarCompactor implements the Compactor interface.
-type ColumnarCompactor struct {
-}
+type ColumnarCompactor struct{}
 
 func (c *ColumnarCompactor) Plan(dir string) ([]string, error) {
 	// TODO: invoke the LevelCompactor.Plan method or something common.
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 
 func (c *ColumnarCompactor) Compact(dest string, dirs []string, open []*Block) ([]ulid.ULID, error) {
 	// TODO: implement compaction over columnar blocks.
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 
 func (c *ColumnarCompactor) Write(dest string, b BlockReader, mint, maxt int64, base *BlockMeta) ([]ulid.ULID, error) {
 	// TODO: implement writing out a (head) block.
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }

@@ -14,15 +14,15 @@
 package tsdb
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/prometheus/prometheus/storage"
 )
 
 func NewColumnarBlockQuerier(b BlockReader, mint, maxt int64) (storage.Querier, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 
 func NewColumnarBlockChunkQuerier(b BlockReader, mint, maxt int64) (storage.ChunkQuerier, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
