@@ -33,17 +33,20 @@ func NewColumnarCompactorWithOptions(ctx context.Context, r prometheus.Registere
 // ColumnarCompactor implements the Compactor interface.
 type ColumnarCompactor struct{}
 
-func (c *ColumnarCompactor) Plan(dir string) ([]string, error) {
+// Plan (dir string).
+func (c *ColumnarCompactor) Plan(_ string) ([]string, error) {
 	// TODO: invoke the LevelCompactor.Plan method or something common.
 	return nil, errors.New("not implemented")
 }
 
-func (c *ColumnarCompactor) Compact(dest string, dirs []string, open []*Block) ([]ulid.ULID, error) {
+// Compact (dest string, dirs []string, open []*Block).
+func (c *ColumnarCompactor) Compact(_ string, _ []string, _ []*Block) ([]ulid.ULID, error) {
 	// TODO: implement compaction over columnar blocks.
 	return nil, errors.New("not implemented")
 }
 
-func (c *ColumnarCompactor) Write(dest string, b BlockReader, mint, maxt int64, base *BlockMeta) ([]ulid.ULID, error) {
+// Write (dest string, b BlockReader, mint, maxt int64, base *BlockMeta).
+func (c *ColumnarCompactor) Write(_ string, _ BlockReader, _, _ int64, _ *BlockMeta) ([]ulid.ULID, error) {
 	// TODO: implement writing out a (head) block.
 	return nil, errors.New("not implemented")
 }

@@ -19,10 +19,12 @@ import (
 	"github.com/prometheus/prometheus/storage"
 )
 
-func NewColumnarBlockQuerier(b BlockReader, mint, maxt int64) (storage.Querier, error) {
+// NewColumnarBlockQuerier (b BlockReader, mint, maxt int64).
+func NewColumnarBlockQuerier(_ BlockReader, _, _ int64) (storage.Querier, error) {
 	return nil, errors.New("not implemented")
 }
 
-func NewColumnarBlockChunkQuerier(b BlockReader, mint, maxt int64) (storage.ChunkQuerier, error) {
+// NewColumnarBlockChunkQuerier (b BlockReader, mint, maxt int64).
+func NewColumnarBlockChunkQuerier(_ BlockReader, _, _ int64) (storage.ChunkQuerier, error) {
 	return nil, errors.New("not implemented")
 }
