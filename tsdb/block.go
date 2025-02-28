@@ -230,8 +230,8 @@ type BlockMetaCompaction struct {
 	Hints []string `json:"hints,omitempty"`
 }
 
-func (bmc BlockMetaCompaction) IsParquet() bool {
-	return slices.Contains(bmc.Hints, "parquet")
+func (bm BlockMetaCompaction) IsParquet() bool {
+	return slices.Contains(bm.Hints, "parquet")
 }
 
 func (bm *BlockMetaCompaction) SetOutOfOrder() {

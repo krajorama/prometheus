@@ -25,15 +25,16 @@ import (
 	"github.com/prometheus/prometheus/tsdb/index"
 )
 
-// Implements the tsdb.IndexReader interface.
+// IndexReader implements the tsdb.IndexReader interface.
 type IndexReader struct{}
 
-// Implements the tsdb.ChunkReader interface.
+// ChunkReader implements the tsdb.ChunkReader interface.
 type ChunkReader struct{}
 
 // The index reader.
 
-func NewIndexReader(dir string) (*IndexReader, error) {
+// NewIndexReader (dir string).
+func NewIndexReader(_ string) (*IndexReader, error) {
 	return &IndexReader{}, nil
 }
 
@@ -111,14 +112,15 @@ func (ir *IndexReader) Close() error {
 	return errors.New("not implemented")
 }
 
-// // The chunks reader.
+// The chunks reader.
 
-func NewChunkReader(dir string) (*ChunkReader, error) {
+// NewChunkReader (dir string).
+func NewChunkReader(_ string) (*ChunkReader, error) {
 	return &ChunkReader{}, nil
 }
 
-// ChunkOrIterable(meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error)
-func (cr *ChunkReader) ChunkOrIterable(meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error) {
+// ChunkOrIterable (meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error)
+func (cr *ChunkReader) ChunkOrIterable(_ chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error) {
 	return nil, nil, errors.New("not implemented")
 }
 
