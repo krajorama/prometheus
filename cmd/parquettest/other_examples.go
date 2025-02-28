@@ -75,7 +75,7 @@ func generateTimeSeriesRows() []TimeSeriesRow {
 	rows := []TimeSeriesRow{
 		{
 			// First series: node_cpu_seconds_total{host="server1",region="us-west"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_cpu_seconds_total"},
 				{Key: "host", Value: "server1"},
 				{Key: "region", Value: "us-west"},
@@ -85,7 +85,7 @@ func generateTimeSeriesRows() []TimeSeriesRow {
 		},
 		{
 			// Second series: node_cpu_seconds_total{host="server2",region="us-west"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_cpu_seconds_total"},
 				{Key: "host", Value: "server2"},
 				{Key: "region", Value: "us-west"},
@@ -95,7 +95,7 @@ func generateTimeSeriesRows() []TimeSeriesRow {
 		},
 		{
 			// Third series: node_filesystem_avail_bytes{host="server1",region="us-west",mountpoint="/"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_filesystem_avail_bytes"},
 				{Key: "host", Value: "server1"},
 				{Key: "region", Value: "us-west"},
@@ -107,7 +107,7 @@ func generateTimeSeriesRows() []TimeSeriesRow {
 		},
 		{
 			// Fourth series: node_filesystem_avail_bytes{host="server2",region="us-west",mountpoint="/"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_filesystem_avail_bytes"},
 				{Key: "host", Value: "server2"},
 				{Key: "region", Value: "us-west"},

@@ -13,20 +13,20 @@ import (
 )
 
 type TimeSeriesRow struct {
-	Lbls  []ParquetLabels `parquet:"labels,list"`
-	Chunk []byte          `parquet:",zstd"`
+	Lbls  []LabelSet
+	Chunk []byte
 }
 
-type ParquetLabels struct {
-	Key   string `parquet:",snappy,dict"`
-	Value string `parquet:",snappy,dict"`
+type LabelSet struct {
+	Key   string
+	Value string
 }
 
 func generateCPUMetrics() []TimeSeriesRow {
 	return []TimeSeriesRow{
 		{
 			// First series: node_cpu_seconds_total{host="server1",region="us-west"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_cpu_seconds_total"},
 				{Key: "host", Value: "server1"},
 				{Key: "region", Value: "us-west"},
@@ -36,7 +36,7 @@ func generateCPUMetrics() []TimeSeriesRow {
 		},
 		{
 			// Second series: node_cpu_seconds_total{host="server2",region="us-west"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_cpu_seconds_total"},
 				{Key: "host", Value: "server2"},
 				{Key: "region", Value: "us-west"},
@@ -51,7 +51,7 @@ func generateDiskMetrics() []TimeSeriesRow {
 	return []TimeSeriesRow{
 		{
 			// Third series: node_filesystem_avail_bytes{host="server1",region="us-west",mountpoint="/"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_filesystem_avail_bytes"},
 				{Key: "host", Value: "server1"},
 				{Key: "region", Value: "us-west"},
@@ -63,7 +63,7 @@ func generateDiskMetrics() []TimeSeriesRow {
 		},
 		{
 			// Fourth series: node_filesystem_avail_bytes{host="server2",region="us-west",mountpoint="/"}
-			Lbls: []ParquetLabels{
+			Lbls: []LabelSet{
 				{Key: "name", Value: "node_filesystem_avail_bytes"},
 				{Key: "host", Value: "server2"},
 				{Key: "region", Value: "us-west"},
