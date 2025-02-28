@@ -16,9 +16,9 @@ type TimeSeries struct {
 	Labels    map[string]string `parquet:"labels"`
 }
 
-func main() {
-	// Create sample data
-	samples := []TimeSeries{
+// getSampleData returns sample time series data for testing
+func getSampleData() []TimeSeries {
+	return []TimeSeries{
 		// server 1
 		{
 			Timestamp: 1645123456,
@@ -58,6 +58,41 @@ func main() {
 			},
 		},
 	}
+}
+
+func testGenericWriter() {
+	samples := getSampleData()
+	schema := parquet.SchemaOf(TimeSeries{})
+
+	// Write to file using generic writer
+	f, _ := os.CreateTemp("", "parquet-generic-example-")
+	writer := parquet.NewGenericWriter[TimeSeries](f, schema)
+	wroteRows, err := writer.Write(samples)
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = writer.Close()
+	_ = f.Close()
+	fmt.Printf("Wrote %d rows\n", wroteRows)
+
+	// Read back using generic reader
+	rf, _ := os.Open(f.Name())
+	reader := parquet.NewGenericReader[TimeSeries](rf)
+
+	fmt.Println("\nReading with Generic Reader:")
+	series := make([]TimeSeries, wroteRows)
+	readSeries, err := reader.Read(series)
+	if err != nil && err != io.EOF {
+		log.Fatal(err)
+	}
+	fmt.Printf("Read %d rows\n", readSeries)
+	for _, ts := range series {
+		fmt.Printf("\t Timestamp: %d, Value %f, Labels %v \n", ts.Timestamp, ts.Value, ts.Labels)
+	}
+}
+
+func testStructWriter() {
+	samples := getSampleData()
 
 	f, _ := os.CreateTemp("", "parquet-example-")
 	writer := parquet.NewWriter(f)
@@ -88,4 +123,12 @@ func main() {
 	for _, ts := range series {
 		fmt.Printf("\t Timestamp: %d, Value %f, Labels %v \n", ts.Timestamp, ts.Value, ts.Labels)
 	}
+}
+
+func main() {
+	fmt.Println("Testing Struct Writer:")
+	testStructWriter()
+
+	fmt.Println("\nTesting Generic Writer:")
+	testGenericWriter()
 }
