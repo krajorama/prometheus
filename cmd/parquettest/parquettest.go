@@ -11,8 +11,8 @@ import (
 
 // TimeSeries represents a single time series data point with labels
 type TimeSeries struct {
-	Timestamp int64             `parquet:"timestamp"`
-	Value     float64           `parquet:"value"`
+	Timestamp int64             `parquet:",delta"`
+	Value     float64           `parquet:",zstd"`
 	Labels    map[string]string `parquet:"labels"`
 }
 
