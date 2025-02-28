@@ -219,7 +219,7 @@ func testCustomSchema() {
 
 // generateTimeSeriesRows returns sample time series data in TimeSeriesRow format
 func generateTimeSeriesRows() []TimeSeriesRow {
-	// Create two time series with different labels
+	// Create time series with different labels
 	rows := []TimeSeriesRow{
 		{
 			// First series: node_cpu_seconds_total{host="server1",region="us-west"}
@@ -240,6 +240,30 @@ func generateTimeSeriesRows() []TimeSeriesRow {
 			},
 			// Simple XOR encoded chunk with two samples
 			Chunk: encodeChunk([]int64{1645123456000, 1645123457000}, []float64{42.5, 43.1}),
+		},
+		{
+			// Third series: node_filesystem_avail_bytes{host="server1",region="us-west",mountpoint="/"}
+			Lbls: []ParquetLabels{
+				{Key: "name", Value: "node_filesystem_avail_bytes"},
+				{Key: "host", Value: "server1"},
+				{Key: "region", Value: "us-west"},
+				{Key: "mountpoint", Value: "/"},
+				{Key: "fstype", Value: "ext4"},
+			},
+			// Filesystem available bytes typically in GB range (converted to bytes)
+			Chunk: encodeChunk([]int64{1645123456000, 1645123457000}, []float64{15.7 * 1e9, 15.6 * 1e9}),
+		},
+		{
+			// Fourth series: node_filesystem_avail_bytes{host="server2",region="us-west",mountpoint="/"}
+			Lbls: []ParquetLabels{
+				{Key: "name", Value: "node_filesystem_avail_bytes"},
+				{Key: "host", Value: "server2"},
+				{Key: "region", Value: "us-west"},
+				{Key: "mountpoint", Value: "/"},
+				{Key: "fstype", Value: "ext4"},
+			},
+			// Filesystem available bytes typically in GB range (converted to bytes)
+			Chunk: encodeChunk([]int64{1645123456000, 1645123457000}, []float64{22.3 * 1e9, 22.1 * 1e9}),
 		},
 	}
 
