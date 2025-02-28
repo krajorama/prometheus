@@ -26,7 +26,8 @@ import (
 
 type ColumnarCompactorOptions struct{}
 
-func NewColumnarCompactorWithOptions(ctx context.Context, r prometheus.Registerer, l *slog.Logger, ranges []int64, pool chunkenc.Pool, opts ColumnarCompactorOptions) (*ColumnarCompactor, error) {
+// NewColumnarCompactorWithOptions (ctx context.Context, r prometheus.Registerer, l *slog.Logger, ranges []int64, pool chunkenc.Pool, opts ColumnarCompactorOptions).
+func NewColumnarCompactorWithOptions(_ context.Context, _ prometheus.Registerer, _ *slog.Logger, _ []int64, _ chunkenc.Pool, _ ColumnarCompactorOptions) (*ColumnarCompactor, error) {
 	return nil, errors.New("not implemented")
 }
 
