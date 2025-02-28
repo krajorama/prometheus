@@ -33,8 +33,17 @@ type ChunkReader struct{}
 
 // The index reader.
 
+func NewIndexReader(dir string) (*IndexReader, error) {
+	return &IndexReader{}, nil
+}
+
 func (ir *IndexReader) Symbols() index.StringIter {
 	panic("not implemented")
+}
+
+func (ir *IndexReader) SymbolTableSize() uint64 {
+	// TODO: implement this method.
+	return 0
 }
 
 // SortedLabelValues (ctx context.Context, name string, matchers ...*labels.Matcher).
@@ -92,6 +101,11 @@ func (ir *IndexReader) LabelNamesFor(_ context.Context, _ index.Postings) ([]str
 	return nil, errors.New("not implemented")
 }
 
+func (ir *IndexReader) Size() int64 {
+	// TODO: implement this method.
+	return 0
+}
+
 // Close ().
 func (ir *IndexReader) Close() error {
 	return errors.New("not implemented")
@@ -99,9 +113,18 @@ func (ir *IndexReader) Close() error {
 
 // // The chunks reader.
 
+func NewChunkReader(dir string) (*ChunkReader, error) {
+	return &ChunkReader{}, nil
+}
+
 // ChunkOrIterable(meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error)
 func (cr *ChunkReader) ChunkOrIterable(meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error) {
 	return nil, nil, errors.New("not implemented")
+}
+
+func (cr *ChunkReader) Size() int64 {
+	// TODO: implement this method.
+	return 0
 }
 
 // Close ().
