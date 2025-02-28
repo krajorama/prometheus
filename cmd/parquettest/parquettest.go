@@ -66,6 +66,9 @@ func testGenericWriter() {
 
 	// Write to file using generic writer
 	f, _ := os.CreateTemp("", "parquet-generic-example-")
+	fileName := f.Name()
+	fmt.Printf("Generic writer file: %s\n", fileName)
+
 	writer := parquet.NewGenericWriter[TimeSeries](f, schema)
 	wroteRows, err := writer.Write(samples)
 	if err != nil {
@@ -76,7 +79,7 @@ func testGenericWriter() {
 	fmt.Printf("Wrote %d rows\n", wroteRows)
 
 	// Read back using generic reader
-	rf, _ := os.Open(f.Name())
+	rf, _ := os.Open(fileName)
 	reader := parquet.NewGenericReader[TimeSeries](rf)
 
 	fmt.Println("\nReading with Generic Reader:")
@@ -95,6 +98,9 @@ func testStructWriter() {
 	samples := getSampleData()
 
 	f, _ := os.CreateTemp("", "parquet-example-")
+	fileName := f.Name()
+	fmt.Printf("Struct writer file: %s\n", fileName)
+
 	writer := parquet.NewWriter(f)
 	for _, row := range samples {
 		if err := writer.Write(row); err != nil {
@@ -105,7 +111,7 @@ func testStructWriter() {
 	_ = f.Close()
 
 	// Now, we can read from the file.
-	rf, _ := os.Open(f.Name())
+	rf, _ := os.Open(fileName)
 	pf := parquet.NewReader(rf)
 	series := make([]TimeSeries, 0)
 	for {
