@@ -922,22 +922,16 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	}
 	db.compactCancel = cancel
 
-	switch {
-	case opts.BlockQuerierFunc != nil:
-		db.blockQuerierFunc = opts.BlockQuerierFunc
-	case opts.EnableColumnarBlocks:
-		db.blockQuerierFunc = NewColumnarBlockQuerier
-	default:
+	if opts.BlockQuerierFunc == nil {
 		db.blockQuerierFunc = NewBlockQuerier
+	} else {
+		db.blockQuerierFunc = opts.BlockQuerierFunc
 	}
 
-	switch {
-	case opts.BlockChunkQuerierFunc != nil:
-		db.blockChunkQuerierFunc = opts.BlockChunkQuerierFunc
-	case opts.EnableColumnarBlocks:
-		db.blockChunkQuerierFunc = NewColumnarBlockChunkQuerier
-	default:
+	if opts.BlockChunkQuerierFunc == nil {
 		db.blockChunkQuerierFunc = NewBlockChunkQuerier
+	} else {
+		db.blockChunkQuerierFunc = opts.BlockChunkQuerierFunc
 	}
 
 	var wal, wbl *wlog.WL
