@@ -26,7 +26,9 @@ import (
 )
 
 // IndexReader implements the tsdb.IndexReader interface.
-type IndexReader struct{}
+type IndexReader struct {
+	ix Index
+}
 
 // ChunkReader implements the tsdb.ChunkReader interface.
 type ChunkReader struct{}
@@ -34,8 +36,15 @@ type ChunkReader struct{}
 // The index reader.
 
 // NewIndexReader (dir string).
-func NewIndexReader(_ string) (*IndexReader, error) {
-	return &IndexReader{}, nil
+func NewIndexReader(dir string) (*IndexReader, error) {
+	index, err := ReadIndex(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	return &IndexReader{
+		ix: index,
+	}, nil
 }
 
 func (ir *IndexReader) Symbols() index.StringIter {
