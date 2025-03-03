@@ -157,10 +157,10 @@ func writeParquetFile(
 ) (columnar.MetricMeta, error) {
 	metricMeta := columnar.MetricMeta{
 		ParquetFile: metricName + ".parquet",
-		LabelNames:  []string{},
+		LabelNames:  uniqueLabelKeys(series),
 	}
 
-	schema := buildDynamicSchema(series)
+	schema := buildDynamicSchema(metricMeta.LabelNames)
 
 	var parquetRows []parquet.Row
 	parquetRows, metricMeta.MinT, metricMeta.MaxT = convertToParquetValues(series, schema)
@@ -186,7 +186,7 @@ func writeParquetFile(
 	return metricMeta, nil
 }
 
-func buildDynamicSchema(rows []TimeSeriesRow) *parquet.Schema {
+func uniqueLabelKeys(rows []TimeSeriesRow) []string {
 	uniqueLabels := make(map[string]struct{})
 	for _, row := range rows {
 		for _, label := range row.Lbls {
@@ -200,6 +200,10 @@ func buildDynamicSchema(rows []TimeSeriesRow) *parquet.Schema {
 	}
 	sort.Strings(labelKeys)
 
+	return labelKeys
+}
+
+func buildDynamicSchema(labelKeys []string) *parquet.Schema {
 	node := parquet.Group{
 		"x_chunk":          parquet.Leaf(parquet.ByteArrayType),
 		"x_chunk_min_time": parquet.Int(64),
