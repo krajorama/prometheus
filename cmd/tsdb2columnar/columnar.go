@@ -77,7 +77,9 @@ func convertToColumnarBlock(blockPath string, logger *slog.Logger) error {
 		newIndex.Metrics[metricName] = mm
 	}
 
-	columnar.WriteIndex(newIndex, columnarBlockPath)
+	if err := columnar.WriteIndex(newIndex, columnarBlockPath); err != nil {
+		return fmt.Errorf("failed to write index: %w", err)
+	}
 
 	logger.Info("Successfully converted block to columnar format",
 		"original", blockPath,
