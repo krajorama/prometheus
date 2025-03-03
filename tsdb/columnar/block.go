@@ -119,7 +119,7 @@ func NewChunkReader(_ string) (*ChunkReader, error) {
 	return &ChunkReader{}, nil
 }
 
-// ChunkOrIterable (meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error)
+// ChunkOrIterable (meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error).
 func (cr *ChunkReader) ChunkOrIterable(_ chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error) {
 	return nil, nil, errors.New("not implemented")
 }
