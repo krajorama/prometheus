@@ -47,12 +47,15 @@ func NewIndexReader(dir string) (*IndexReader, error) {
 	}, nil
 }
 
+// Symbols returns an empty iterator since we don't build and need a symbol
+// table at this point.
 func (ir *IndexReader) Symbols() index.StringIter {
-	panic("not implemented")
+	return NopStringIter{}
 }
 
+// SymbolTableSize returns 0 since we don't build and need a symbol table at
+// this point.
 func (ir *IndexReader) SymbolTableSize() uint64 {
-	// TODO: implement this method.
 	return 0
 }
 
@@ -142,3 +145,20 @@ func (cr *ChunkReader) Size() int64 {
 func (cr *ChunkReader) Close() error {
 	return errors.New("not implemented")
 }
+
+// NopStrinIter implements tsdb.StringIter.
+type NopStringIter struct{}
+
+func (it NopStringIter) Next() bool {
+	return false
+}
+
+func (it NopStringIter) At() string {
+	return ""
+}
+
+func (it NopStringIter) Err() error {
+	return nil
+}
+
+var _ index.StringIter = NopStringIter{}
