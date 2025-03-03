@@ -33,7 +33,7 @@ func convertToColumnarBlock(blockPath string, logger *slog.Logger) error {
 	columnarBlockPath := blockPath + "_columnar"
 	dataDir := filepath.Join(columnarBlockPath, "data")
 
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create columnar block directory: %w", err)
 	}
 
@@ -67,7 +67,7 @@ func convertToColumnarBlock(blockPath string, logger *slog.Logger) error {
 		return fmt.Errorf("failed to group series by metric family: %w", err)
 	}
 
-	var newIndex columnar.Index
+	newIndex := columnar.NewIndex()
 
 	for metricName, series := range metricFamilies {
 		mm, err := writeParquetFile(metricName, series, dataDir, logger)
@@ -76,6 +76,8 @@ func convertToColumnarBlock(blockPath string, logger *slog.Logger) error {
 		}
 		newIndex.Metrics[metricName] = mm
 	}
+
+	columnar.WriteIndex(newIndex, columnarBlockPath)
 
 	logger.Info("Successfully converted block to columnar format",
 		"original", blockPath,
@@ -155,7 +157,7 @@ func writeParquetFile(
 ) (columnar.MetricMeta, error) {
 	metricMeta := columnar.MetricMeta{
 		ParquetFile: metricName + ".parquet",
-		LabelNames: []string{},
+		LabelNames:  []string{},
 	}
 
 	schema := buildDynamicSchema(series)
@@ -259,5 +261,5 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0644)
+	return os.WriteFile(dst, data, 0o644)
 }

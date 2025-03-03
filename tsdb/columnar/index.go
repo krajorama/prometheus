@@ -14,6 +14,13 @@
 
 package columnar
 
+import (
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v2"
+)
+
 // Index defines the data that we keep in the per block index.
 type Index struct {
 	Metrics map[string]MetricMeta `json:"metrics" yaml:"metrics"`
@@ -31,4 +38,36 @@ type MetricMeta struct {
 	// krajorama: I'm not sure if this is going to be needed here or should be
 	// moved to the parquet file or a separate file.
 	LabelNames []string `json:"label_names" yaml:"label_names"`
+}
+
+func indexPath(path string) string {
+	return filepath.Join(path, "index.yaml")
+}
+
+// NewIndex initializes a new index.
+func NewIndex() Index {
+	return Index{
+		Metrics: map[string]MetricMeta{},
+	}
+}
+
+// WriteIndex writes the index to the given path.
+func WriteIndex(index Index, path string) error {
+	data, err := yaml.Marshal(index)
+	if err != nil {
+		return err
+	}
+
+	file, err := os.Create(indexPath(path))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Write(data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
