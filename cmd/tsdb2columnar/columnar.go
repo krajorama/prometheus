@@ -138,12 +138,12 @@ func groupSeriesByMetricFamily(
 			}
 
 			labelSets := make([]Label, 0, builder.Labels().Len())
-			for lName, lValue := range builder.Labels().Map() {
+			builder.Labels().Range(func(l labels.Label) {
 				labelSets = append(labelSets, Label{
-					Key:   lName,
-					Value: lValue,
+					Key:   l.Name,
+					Value: l.Value,
 				})
-			}
+			})
 
 			for _, chk := range chks {
 				c, iterable, err := chunkr.ChunkOrIterable(chk)
