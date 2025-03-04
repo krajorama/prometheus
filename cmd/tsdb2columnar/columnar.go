@@ -138,10 +138,10 @@ func groupSeriesByMetricFamily(
 			}
 
 			labelSets := make([]Label, 0, builder.Labels().Len())
-			builder.Labels().Range(func(l labels.Label) {
+			builder.Labels().Range(func(lbl labels.Label) {
 				labelSets = append(labelSets, Label{
-					Key:   l.Name,
-					Value: l.Value,
+					Key:   lbl.Name,
+					Value: lbl.Value,
 				})
 			})
 
