@@ -24,6 +24,7 @@ import (
 )
 
 func main() {
+	existingBlockPath := flag.String("block", "", "Path to existing block, optional")
 	numSeries := flag.Int("series", 10, "Number of series to generate")
 	outputDir := flag.String("output", "outputs", "Directory to store the generated block, by default will be outputs which is git ignored, if you'd wish to store it in a different directory, please update the flag and set it to testdata")
 	dimensions := flag.Int("dimensions", 1, "Number of additional label dimensions to add to each series")
@@ -37,20 +38,24 @@ func main() {
 	now := time.Date(2024, time.December, 10, 10, 0, 0, 0, time.UTC)
 
 	printSeparator("STEP 1: CREATING TSDB BLOCK")
+	if *existingBlockPath == "" {
+		fmt.Printf("Creating a TSDB block with %d series in directory '%s'\n", *numSeries, *outputDir)
+		fmt.Printf("Adding %d dimensions with cardinality %d\n", *dimensions, *cardinality)
 
-	fmt.Printf("Creating a TSDB block with %d series in directory '%s'\n", *numSeries, *outputDir)
-	fmt.Printf("Adding %d dimensions with cardinality %d\n", *dimensions, *cardinality)
-
-	blockPath, err := createTSDBBlock(*numSeries, *outputDir, *dimensions, *cardinality, now.Unix()*1000, logger)
-	if err != nil {
-		fmt.Printf("Failed to create TSDB block: %v\n", err)
-		return
+		blockPath, err := createTSDBBlock(*numSeries, *outputDir, *dimensions, *cardinality, now.Unix()*1000, logger)
+		if err != nil {
+			fmt.Printf("Failed to create TSDB block: %v\n", err)
+			return
+		}
+		fmt.Printf("TSDB block created successfully: %s\n", blockPath)
+		existingBlockPath = &blockPath
+	} else {
+		fmt.Printf("Using existing block at path: %s\n", *existingBlockPath)
 	}
-	fmt.Printf("TSDB block created successfully: %s\n", blockPath)
 
 	printSeparator("STEP 2: CONVERTING TO COLUMNAR BLOCK")
 
-	err = convertToColumnarBlock(blockPath, logger)
+	err := convertToColumnarBlock(*existingBlockPath, logger)
 	if err != nil {
 		fmt.Printf("Failed to convert to columnar block: %v\n", err)
 		return
