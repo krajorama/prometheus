@@ -481,7 +481,10 @@ type columnarSeriesSet struct {
 }
 
 func (b *columnarSeriesSet) At() storage.Series {
-	return &b.curr
+	return &rowsSeries{
+		labels: b.curr.labels.Copy(),
+		metas: b.curr.metas,
+	}
 }
 
 type rowsSeries struct {
