@@ -306,7 +306,8 @@ func loadSeriesIds(root *parquet.Column) ([]int64, error) {
 
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				break
+				// keep going, we might have more pages.
+				continue
 			}
 			panic(err)
 		}
