@@ -45,49 +45,49 @@ type Label struct {
 	Value string
 }
 
-func convertToColumnarBlock(blockPath string, logger *slog.Logger) error {
+func convertToColumnarBlock(blockPath string, logger *slog.Logger) (string, error) {
 	columnarBlockPath := blockPath + "_columnar"
 	dataDir := filepath.Join(columnarBlockPath, "data")
 
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create columnar block directory: %w", err)
+		return "", fmt.Errorf("failed to create columnar block directory: %w", err)
 	}
 
 	bm, _, err := tsdb.ReadMetaFile(blockPath)
 	if err != nil {
-		return fmt.Errorf("failed to read meta file: %w", err)
+		return "", fmt.Errorf("failed to read meta file: %w", err)
 	}
 	if bm.Compaction.IsParquet() {
-		return errors.New("block is already in columnar format")
+		return "", errors.New("block is already in columnar format")
 	}
 	bm.Compaction.SetParquet()
 
 	_, err = tsdb.WriteMetaFile(logger, columnarBlockPath, bm)
 	if err != nil {
-		return fmt.Errorf("failed to write meta file: %w", err)
+		return "", fmt.Errorf("failed to write meta file: %w", err)
 	}
 
 	block, err := tsdb.OpenBlock(logger, blockPath, nil, nil)
 	if err != nil {
-		return fmt.Errorf("failed to open TSDB block: %w", err)
+		return "", fmt.Errorf("failed to open TSDB block: %w", err)
 	}
 	defer block.Close()
 
 	indexr, err := block.Index()
 	if err != nil {
-		return fmt.Errorf("failed to open block index: %w", err)
+		return "", fmt.Errorf("failed to open block index: %w", err)
 	}
 	defer indexr.Close()
 
 	chunkr, err := block.Chunks()
 	if err != nil {
-		return fmt.Errorf("failed to open block chunks: %w", err)
+		return "", fmt.Errorf("failed to open block chunks: %w", err)
 	}
 	defer chunkr.Close()
 
 	metricFamilies, err := groupSeriesByMetricFamily(indexr, chunkr, logger)
 	if err != nil {
-		return fmt.Errorf("failed to group series by metric family: %w", err)
+		return "", fmt.Errorf("failed to group series by metric family: %w", err)
 	}
 
 	newIndex := columnar.NewIndex()
@@ -97,21 +97,21 @@ func convertToColumnarBlock(blockPath string, logger *slog.Logger) error {
 	for metricName, series := range metricFamilies {
 		mm, err := writeParquetFile(metricName, series, dataDir, logger, fileIndex)
 		if err != nil {
-			return fmt.Errorf("failed to write Parquet file for metric %s: %w", metricName, err)
+			return "", fmt.Errorf("failed to write Parquet file for metric %s: %w", metricName, err)
 		}
 		newIndex.Metrics[metricName] = mm
 		fileIndex++
 	}
 
 	if err := columnar.WriteIndex(newIndex, columnarBlockPath); err != nil {
-		return fmt.Errorf("failed to write index: %w", err)
+		return "", fmt.Errorf("failed to write index: %w", err)
 	}
 
 	logger.Info("Successfully converted block to columnar format",
 		"original", blockPath,
 		"columnar", columnarBlockPath)
 
-	return nil
+	return columnarBlockPath, nil
 }
 
 func groupSeriesByMetricFamily(
