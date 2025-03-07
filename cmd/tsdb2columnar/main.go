@@ -15,12 +15,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb"
 )
 
 func main() {
@@ -50,14 +56,53 @@ func main() {
 
 	printSeparator("STEP 2: CONVERTING TO COLUMNAR BLOCK")
 
-	err = convertToColumnarBlock(blockPath, logger)
+	columnarBlockPath, err := compactToColumnarBlock(blockPath, logger)
 	if err != nil {
-		fmt.Printf("Failed to convert to columnar block: %v\n", err)
+		fmt.Printf("Failed to compact to columnar block: %v\n", err)
 		return
 	}
-	fmt.Println("Conversion to columnar block completed successfully")
+
+	//err = convertToColumnarBlock(blockPath, logger)
+	//if err != nil {
+	//	fmt.Printf("Failed to convert to columnar block: %v\n", err)
+	//	return
+	//}
+	//columnarBlockPath := blockPath + "_columnar"
+
+	fmt.Printf("Conversion to columnar block completed successfully: %s\n", columnarBlockPath)
+
+	printSeparator("STEP 3: QUERY COLUMNAR BLOCK")
+
+	err = queryBlock(
+		func(mint, maxt int64) (storage.Querier, error) {
+			return tsdb.NewColumnarQuerier(columnarBlockPath, mint, maxt, []string{"dim_0"})
+		},
+		logger,
+	)
+	if err != nil {
+		fmt.Printf("Failed to query columnar block: %v\n", err)
+		return
+	}
 
 	printSeparator("COMPLETED")
+}
+
+func queryBlock(queryable storage.QueryableFunc, logger *slog.Logger) error {
+	q, err := queryable.Querier(0, math.MaxInt64)
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+
+	matchers := []*labels.Matcher{
+		labels.MustNewMatcher(labels.MatchEqual, "__name__", "tsdb2columnar_gauge_0"),
+	}
+	seriesSet := q.Select(context.Background(), false, nil, matchers...)
+	for seriesSet.Next() {
+		ss := seriesSet.At()
+		logger.Info("Found series", "labels", ss.Labels().String())
+	}
+	return seriesSet.Err()
 }
 
 func printSeparator(title string) {
