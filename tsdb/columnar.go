@@ -367,15 +367,27 @@ func filterLabel(root *parquet.Column, labelName string, include bool, excludeMa
 			}
 		}
 
+		if len(matchingSymbols) == 0 {
+			// No symbols matched the label selector, mark all rows for exclude.
+			for i := int64(0); i < page.NumValues(); i++ {
+				excludeMask[rowOffset] = true
+				rowOffset++
+			}
+			continue
+		}
+
 		data := page.Data()
 		syms := data.Int32()
 		for _, sym := range syms {
 			if include {
 				labelValues = append(labelValues, symbols.Index(sym).String())
 			}
-			if !slices.Contains(matchingSymbols, sym) {
-				// Row does not match the label selector, mark it for exclude.
-				excludeMask[rowOffset] = true
+			// If row is not already excluded, only then check if it matches the label selector.
+			if !excludeMask[rowOffset] {
+				if !slices.Contains(matchingSymbols, sym) {
+					// Row does not match the label selector, mark it for exclude.
+					excludeMask[rowOffset] = true
+				}
 			}
 			rowOffset++
 		}
