@@ -304,11 +304,7 @@ func loadSeriesIds(root *parquet.Column) ([]int64, error) {
 			seriesIds = append(seriesIds, v.Int64())
 		}
 
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				// keep going, we might have more pages.
-				continue
-			}
+		if err != nil && !errors.Is(err, io.EOF) {
 			panic(err)
 		}
 	}
@@ -351,10 +347,7 @@ func loadLabelValues(root *parquet.Column, labelName string) ([]string, error) {
 			labelValues = append(labelValues, v.String())
 		}
 
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
+		if err != nil && !errors.Is(err, io.EOF) {
 			panic(err)
 		}
 	}
