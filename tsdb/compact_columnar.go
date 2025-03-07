@@ -206,7 +206,7 @@ func (c *ColumnarCompactor) writeMetricFamily(dir string, b BlockReader, ix *col
 			}
 
 			for _, l := range s.Labels {
-				p, ok := cols[colNameForLabel(l.Name)]
+				p, ok := cols[columnNameForLabel(l.Name)]
 				if !ok || p >= len(row)-4 { // 4 columns belong to the chunk data
 					return fmt.Errorf("unexpected column index for label %s", l.Name)
 				}
@@ -248,7 +248,7 @@ func buildColumnarSchemaFromSeries(metricName string, series []columnarSeriesDat
 
 	node := make(parquet.Group, len(labelNames)+3)
 	for _, label := range labelNames {
-		node[colNameForLabel(label)] = parquet.Encoded(parquet.String(), &parquet.RLEDictionary)
+		node[columnNameForLabel(label)] = parquet.Encoded(parquet.String(), &parquet.RLEDictionary)
 	}
 	node["x_series_id"] = parquet.Encoded(parquet.Int(64), &parquet.RLEDictionary)
 	node["x_chunk"] = parquet.Leaf(parquet.ByteArrayType)
@@ -258,6 +258,6 @@ func buildColumnarSchemaFromSeries(metricName string, series []columnarSeriesDat
 	return parquet.NewSchema(metricName, node)
 }
 
-func colNameForLabel(l string) string {
+func columnNameForLabel(l string) string {
 	return "l_" + l
 }

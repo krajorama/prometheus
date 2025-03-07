@@ -315,7 +315,7 @@ func loadLabelValues(root *parquet.Column, labelName string) ([]string, error) {
 	cols := root.Columns()
 	var col *parquet.Column
 	for _, c := range cols {
-		if c.Name() == "l_"+labelName {
+		if c.Name() == columnNameForLabel(labelName) {
 			col = c
 			break
 		}
