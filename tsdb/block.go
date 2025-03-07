@@ -34,6 +34,7 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/tsdb/columnar"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
@@ -65,6 +66,9 @@ type IndexReader interface {
 	// series' labels and indices. It is not safe to use the returned strings
 	// beyond the lifetime of the index reader.
 	Symbols() index.StringIter
+
+	// SymbolTableSize returns the size of the symbol table in bytes.
+	SymbolTableSize() uint64
 
 	// SortedLabelValues returns sorted possible label values.
 	SortedLabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error)
@@ -112,6 +116,9 @@ type IndexReader interface {
 	// The names returned are sorted.
 	LabelNamesFor(ctx context.Context, postings index.Postings) ([]string, error)
 
+	// Size returns the number of bytes that the index data takes up on disk.
+	Size() int64
+
 	// Close releases the underlying resources of the reader.
 	Close() error
 }
@@ -144,6 +151,9 @@ type ChunkReader interface {
 	// always expect a chunk to be returned. You can check that iterable is nil
 	// in those cases.
 	ChunkOrIterable(meta chunks.Meta) (chunkenc.Chunk, chunkenc.Iterable, error)
+
+	// Size returns the number of bytes that the chunks data takes up on disk.
+	Size() int64
 
 	// Close releases all underlying resources of the reader.
 	Close() error
@@ -220,6 +230,18 @@ type BlockMetaCompaction struct {
 	Hints []string `json:"hints,omitempty"`
 }
 
+func (bm BlockMetaCompaction) IsParquet() bool {
+	return slices.Contains(bm.Hints, "parquet")
+}
+
+func (bm *BlockMetaCompaction) SetParquet() {
+	if bm.IsParquet() {
+		return
+	}
+	bm.Hints = append(bm.Hints, "parquet")
+	slices.Sort(bm.Hints)
+}
+
 func (bm *BlockMetaCompaction) SetOutOfOrder() {
 	if bm.FromOutOfOrder() {
 		return
@@ -243,8 +265,9 @@ const (
 )
 
 func chunkDir(dir string) string { return filepath.Join(dir, "chunks") }
+func dataDir(dir string) string  { return filepath.Join(dir, "data") }
 
-func readMetaFile(dir string) (*BlockMeta, int64, error) {
+func ReadMetaFile(dir string) (*BlockMeta, int64, error) {
 	b, err := os.ReadFile(filepath.Join(dir, metaFilename))
 	if err != nil {
 		return nil, 0, err
@@ -261,7 +284,7 @@ func readMetaFile(dir string) (*BlockMeta, int64, error) {
 	return &m, int64(len(b)), nil
 }
 
-func writeMetaFile(logger *slog.Logger, dir string, meta *BlockMeta) (int64, error) {
+func WriteMetaFile(logger *slog.Logger, dir string, meta *BlockMeta) (int64, error) {
 	meta.Version = metaVersion1
 
 	// Make any changes to the file appear atomic.
@@ -335,22 +358,36 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 			err = tsdb_errors.NewMulti(err, tsdb_errors.CloseAll(closers)).Err()
 		}
 	}()
-	meta, sizeMeta, err := readMetaFile(dir)
+	meta, sizeMeta, err := ReadMetaFile(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	cr, err := chunks.NewDirReader(chunkDir(dir), pool)
+	var cr ChunkReader
+
+	if meta.Compaction.IsParquet() {
+		cr, err = columnar.NewColumnarChunkReader(dataDir(dir), pool)
+	} else {
+		cr, err = chunks.NewDirReader(chunkDir(dir), pool)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	closers = append(closers, cr)
 
-	decoder := index.DecodePostingsRaw
-	if postingsDecoderFactory != nil {
-		decoder = postingsDecoderFactory(meta)
+	var ir IndexReader
+
+	if meta.Compaction.IsParquet() {
+		ir, err = columnar.NewColumnarIndexReader(dir)
+	} else {
+		decoder := index.DecodePostingsRaw
+		if postingsDecoderFactory != nil {
+			decoder = postingsDecoderFactory(meta)
+		}
+		ir, err = index.NewFileReader(filepath.Join(dir, indexFilename), decoder)
 	}
-	ir, err := index.NewFileReader(filepath.Join(dir, indexFilename), decoder)
+
 	if err != nil {
 		return nil, err
 	}
@@ -459,7 +496,7 @@ func (pb *Block) GetSymbolTableSize() uint64 {
 
 func (pb *Block) setCompactionFailed() error {
 	pb.meta.Compaction.Failed = true
-	n, err := writeMetaFile(pb.logger, pb.dir, &pb.meta)
+	n, err := WriteMetaFile(pb.logger, pb.dir, &pb.meta)
 	if err != nil {
 		return err
 	}
@@ -474,6 +511,10 @@ type blockIndexReader struct {
 
 func (r blockIndexReader) Symbols() index.StringIter {
 	return r.ir.Symbols()
+}
+
+func (r blockIndexReader) SymbolTableSize() uint64 {
+	return r.ir.SymbolTableSize()
 }
 
 func (r blockIndexReader) SortedLabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
@@ -543,6 +584,10 @@ func (r blockIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchB
 		return fmt.Errorf("block: %s: %w", r.b.Meta().ULID, err)
 	}
 	return nil
+}
+
+func (r blockIndexReader) Size() int64 {
+	return r.ir.Size()
 }
 
 func (r blockIndexReader) Close() error {
@@ -641,7 +686,7 @@ Outer:
 		return err
 	}
 	pb.numBytesTombstone = n
-	n, err = writeMetaFile(pb.logger, pb.dir, &pb.meta)
+	n, err = WriteMetaFile(pb.logger, pb.dir, &pb.meta)
 	if err != nil {
 		return err
 	}

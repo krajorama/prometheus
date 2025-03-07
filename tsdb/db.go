@@ -224,6 +224,8 @@ type Options struct {
 	// PostingsDecoderFactory allows users to customize postings decoders based on BlockMeta.
 	// By default, DefaultPostingsDecoderFactory will be used to create raw posting decoder.
 	PostingsDecoderFactory PostingsDecoderFactory
+
+	EnableColumnarBlocks bool
 }
 
 type NewCompactorFunc func(ctx context.Context, r prometheus.Registerer, l *slog.Logger, ranges []int64, pool chunkenc.Pool, opts *Options) (Compactor, error)
@@ -901,15 +903,19 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	if opts.NewCompactorFunc != nil {
+	switch {
+	case opts.NewCompactorFunc != nil:
 		db.compactor, err = opts.NewCompactorFunc(ctx, r, l, rngs, db.chunkPool, opts)
-	} else {
+	case opts.EnableColumnarBlocks:
+		db.compactor, err = NewColumnarCompactorWithOptions(ctx, r, l, rngs, db.chunkPool, ColumnarCompactorOptions{})
+	default:
 		db.compactor, err = NewLeveledCompactorWithOptions(ctx, r, l, rngs, db.chunkPool, LeveledCompactorOptions{
 			MaxBlockChunkSegmentSize:    opts.MaxBlockChunkSegmentSize,
 			EnableOverlappingCompaction: opts.EnableOverlappingCompaction,
 			PD:                          opts.PostingsDecoderFactory,
 		})
 	}
+
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("create compactor: %w", err)
@@ -1686,7 +1692,7 @@ func openBlocks(l *slog.Logger, dir string, loaded []*Block, chunkPool chunkenc.
 
 	corrupted = make(map[ulid.ULID]error)
 	for _, bDir := range bDirs {
-		meta, _, err := readMetaFile(bDir)
+		meta, _, err := ReadMetaFile(bDir)
 		if err != nil {
 			l.Error("Failed to read meta.json for a block during reloadBlocks. Skipping", "dir", bDir, "err", err)
 			continue
@@ -2120,11 +2126,20 @@ func (db *DB) Querier(mint, maxt int64) (_ storage.Querier, err error) {
 	}
 
 	for _, b := range blocks {
-		q, err := db.blockQuerierFunc(b, mint, maxt)
-		if err != nil {
-			return nil, fmt.Errorf("open querier for block %s: %w", b, err)
+		if b.Meta().Compaction.IsParquet() {
+
+			q, err := NewColumnarQuerier(filepath.Join(db.dir, b.Meta().ULID.String()), mint, maxt, []string{"dim_0"})
+			if err != nil {
+				panic(err)
+			}
+			blockQueriers = append(blockQueriers, q)
+		} else {
+			q, err := db.blockQuerierFunc(b, mint, maxt)
+			if err != nil {
+				return nil, fmt.Errorf("open querier for block %s: %w", b, err)
+			}
+			blockQueriers = append(blockQueriers, q)
 		}
-		blockQueriers = append(blockQueriers, q)
 	}
 
 	return storage.NewMergeQuerier(blockQueriers, nil, storage.ChainedSeriesMerge), nil
