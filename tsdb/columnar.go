@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-
 	"strings"
 
 	"github.com/parquet-go/parquet-go"
@@ -134,8 +133,12 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 		return storage.ErrSeriesSet(fmt.Errorf("we only accept matchers that have EQ matcher on __name__: %w", err))
 	}
 
-	f, err := os.Open(filepath.Join(q.dir, "data", fmt.Sprintf("%s.parquet", metricFamily)))
+	meta, ok := q.ix.Metrics[metricFamily]
+	if !ok {
+		return storage.ErrSeriesSet(fmt.Errorf("metric family %s not found in block index", metricFamily))
+	}
 
+	f, err := os.Open(filepath.Join(q.dir, columnarDataDir, meta.ParquetFile))
 	if err != nil {
 		panic(err)
 	}
@@ -159,7 +162,6 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 	// 		matchedColumns = append(matchedColumns, m.Name)
 	// 	}
 	// }
-
 
 	// TODO: i believe that including the chunks in the schema makes it so we load them into memory, but we don't want them all.
 	// should we do a first pass to get the rowids, and then a second pass to get the chunks?
@@ -232,12 +234,10 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 		updateSeriesLabels(seriesLabels, seriesIds, rowMask, l, labelValues)
 	}
 
-
-
 	//filterLabel(root, "dim_0", true, *labels.MustNewMatcher(labels.MatchEqual, "dim_0", "val_1"))
 
 	return &columnarSeriesSet{
-		metricName: metricFamily,
+		metricName:   metricFamily,
 		seriesLabels: seriesLabels,
 		chunkIterator: chunkColumnIterator{
 			pf: pFile,
@@ -246,8 +246,8 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 		mint:    q.mint,
 		maxt:    q.maxt,
 		builder: labels.NewScratchBuilder(1),
-		curr:   rowsSeries{
-            labels: labels.FromStrings(labels.MetricName, metricFamily),
+		curr: rowsSeries{
+			labels: labels.FromStrings(labels.MetricName, metricFamily),
 		},
 		seriesIds: seriesIds,
 		mask:      rowMask,
@@ -390,7 +390,7 @@ func filterLabel(root *parquet.Column, labelName string, include bool, matchers 
 
 		symbols := page.Dictionary()
 		matchingSymbols := matchingSymbols[:0]
-		for i:=0; i<symbols.Len(); i++ {
+		for i := 0; i < symbols.Len(); i++ {
 			labelValue := symbols.Index(int32(i)).String()
 			fmt.Printf("Label value: %s for idx %d\n", labelValue, i)
 			if matchLabel(labelValue, matchers...) {
@@ -454,17 +454,17 @@ func (*columnarQuerier) getMetricFamily(ms []*labels.Matcher) (string, error) {
 }
 
 type columnarSeriesSet struct {
-	metricName string
+	metricName   string
 	seriesLabels map[int64][]string
 
-    chunkIterator  chunkColumnIterator
+	chunkIterator chunkColumnIterator
 
-	schema      *parquet.Schema
+	schema *parquet.Schema
 	//columnIndex map[string]int
 
 	mint, maxt int64
 
-	curr   rowsSeries
+	curr rowsSeries
 
 	builder labels.ScratchBuilder
 	err     error
@@ -477,15 +477,15 @@ type columnarSeriesSet struct {
 func (b *columnarSeriesSet) At() storage.Series {
 	return &rowsSeries{
 		labels: b.curr.labels.Copy(),
-		metas: b.curr.metas,
+		metas:  b.curr.metas,
 	}
 }
 
 type rowsSeries struct {
-	labels      labels.Labels
+	labels labels.Labels
 	//columnIndex map[string]int
 	//rows        []parquet.Row
-	metas       []chunks.Meta
+	metas []chunks.Meta
 }
 
 type consecutiveChunkIterators struct {
@@ -580,10 +580,10 @@ func (b *columnarSeriesSet) Next() bool {
 		})
 		b.seriesPos++
 	}
-	
+
 	b.builder.Reset()
 	b.builder.Add(labels.MetricName, b.metricName)
-	for i:=0;i<len(b.seriesLabels[nextSeriesId]);i+=2 {
+	for i := 0; i < len(b.seriesLabels[nextSeriesId]); i += 2 {
 		b.builder.Add(b.seriesLabels[nextSeriesId][i], b.seriesLabels[nextSeriesId][i+1])
 	}
 	b.curr.labels = b.builder.Labels()
@@ -627,7 +627,6 @@ func (b *columnarSeriesSet) Err() error {
 }
 
 func (b *columnarSeriesSet) Warnings() annotations.Annotations { return nil }
-
 
 type chunkColumnIterator struct {
 	pf             *parquet.File
