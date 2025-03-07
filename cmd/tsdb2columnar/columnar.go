@@ -24,13 +24,46 @@ import (
 	"path/filepath"
 	"sort"
 
-	parquet "github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/columnar"
 )
+
+func compactToColumnarBlock(blockPath string, logger *slog.Logger) (string, error) {
+	block, err := tsdb.OpenBlock(logger, blockPath, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to open TSDB block: %w", err)
+	}
+	defer block.Close()
+
+	destDir, err := os.MkdirTemp("", "")
+	if err != nil {
+		return "", fmt.Errorf("failed to create destination dir: %w", err)
+	}
+
+	compactor := &tsdb.ColumnarCompactor{}
+	ids, err := compactor.Write(destDir, block, block.MinTime(), block.MaxTime(), nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to compact to columnar block: %w", err)
+	}
+
+	if len(ids) != 1 {
+		return "", fmt.Errorf("failed to compact to columnar block: expected 1 id but got %v", len(ids))
+	}
+	blockName := ids[0].String()
+	columnarBlockPath := filepath.Join(filepath.Dir(blockPath), blockName+"_columnar")
+	err = os.Rename(filepath.Join(destDir, blockName), columnarBlockPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to move columnar block: %w", err)
+	}
+
+	logger.Info("Successfully compacted block to columnar", "original", blockPath, "columnar", columnarBlockPath)
+
+	return columnarBlockPath, nil
+}
 
 type TimeSeriesRow struct {
 	Lbls     []Label
