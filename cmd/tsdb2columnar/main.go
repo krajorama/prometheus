@@ -50,12 +50,12 @@ func main() {
 
 	printSeparator("STEP 2: CONVERTING TO COLUMNAR BLOCK")
 
-	err = convertToColumnarBlock(blockPath, logger)
+	columnarBlockPath, err := convertToColumnarBlock(blockPath, logger)
 	if err != nil {
 		fmt.Printf("Failed to convert to columnar block: %v\n", err)
 		return
 	}
-	fmt.Println("Conversion to columnar block completed successfully")
+	fmt.Printf("Conversion to columnar block completed successfully: %s\n", columnarBlockPath)
 
 	printSeparator("COMPLETED")
 }
