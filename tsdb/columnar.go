@@ -42,16 +42,12 @@ type columnarQuerier struct {
 
 	includeLabels []string
 
-	ix columnar.Index
+	ix *columnar.Index
 
 	parquetFile *os.File
 }
 
-func NewColumnarQuerier(dir string, mint, maxt int64, includeLabels []string) (*columnarQuerier, error) {
-	ix, err := columnar.ReadIndex(dir)
-	if err != nil {
-		return nil, err
-	}
+func NewColumnarQuerier(dir string, ix *columnar.Index, mint, maxt int64, includeLabels []string) (*columnarQuerier, error) {
 	return &columnarQuerier{
 		dir:           dir,
 		mint:          mint,
@@ -149,25 +145,6 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 		panic(err)
 	}
 
-	// These will be the columns to filter on.
-	// matchedColumns := []string{}
-	// for _, m := range ms {
-	// 	if m.Type != labels.MatchEqual {
-	// 		panic("only MatchEqual is supported")
-	// 	}
-	// 	if !slices.Contains(matchedColumns, m.Name) && slices.Contains(q.ix.Metrics[metricFamily].LabelNames, m.Name) {
-	// 		matchedColumns = append(matchedColumns, m.Name)
-	// 	}
-	// }
-
-
-	// TODO: i believe that including the chunks in the schema makes it so we load them into memory, but we don't want them all.
-	// should we do a first pass to get the rowids, and then a second pass to get the chunks?
-	// For now let's just make it work.
-	//schema := buildSchemaForLabels(q.ix.Metrics[metricFamily].LabelNames, true)
-	// reader := parquet.NewGenericReader[any](f, schema)
-	// defer reader.Close()
-
 	pFile, err := parquet.OpenFile(f, fstat.Size())
 	if err != nil {
 		f.Close()
@@ -188,33 +165,30 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 		labelMatchers[m.Name] = append(labelMatchers[m.Name], m)
 	}
 
-	// Filter and collect the labels.
-	var rowMask []bool
+	// excludeMask is true for rows that should NOT be included.
+	var excludeMask []bool
 	// Series labels is seriesId -> value of included labels
 	var seriesLabels map[int64][]string = make(map[int64][]string)
 
 	matchedLabels := []string{}
 	for labelName, matchers := range labelMatchers {
-		fmt.Printf("Filtering label %s\n", labelName)
+		if excludeMask == nil {
+			excludeMask = make([]bool, len(seriesIds))
+		}
+
+		// fmt.Printf("Filtering label %s\n", labelName)
 		include := false
 		if slices.Contains(q.includeLabels, labelName) {
 			include = true
 			matchedLabels = append(matchedLabels, labelName)
 		}
-		mask, labelValues, err := filterLabel(root, labelName, include, matchers...)
+		var labelValues []string
+		excludeMask, labelValues, err = filterLabel(root, labelName, include, excludeMask, matchers...)
 		if err != nil {
 			panic(err)
 		}
 
-		updateSeriesLabels(seriesLabels, seriesIds, mask, labelName, labelValues)
-
-		if rowMask == nil {
-			rowMask = mask
-		} else {
-			for i, v := range mask {
-				rowMask[i] = rowMask[i] && v
-			}
-		}
+		updateSeriesLabels(seriesLabels, seriesIds, excludeMask, labelName, labelValues)
 	}
 
 	for _, l := range q.includeLabels {
@@ -229,12 +203,9 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
 		if err != nil {
 			panic(err)
 		}
-		updateSeriesLabels(seriesLabels, seriesIds, rowMask, l, labelValues)
+		updateSeriesLabels(seriesLabels, seriesIds, excludeMask, l, labelValues)
 	}
 
-
-
-	//filterLabel(root, "dim_0", true, *labels.MustNewMatcher(labels.MatchEqual, "dim_0", "val_1"))
 
 	return &columnarSeriesSet{
 		metricName: metricFamily,
@@ -250,11 +221,11 @@ func (q *columnarQuerier) Select(ctx context.Context, sortSeries bool, hints *st
             labels: labels.FromStrings(labels.MetricName, metricFamily),
 		},
 		seriesIds: seriesIds,
-		mask:      rowMask,
+		excludeMask:      excludeMask,
 	}
 }
 
-func updateSeriesLabels(seriesLabels map[int64][]string, seriesIds []int64, mask []bool, labelName string, labelValues []string) {
+func updateSeriesLabels(seriesLabels map[int64][]string, seriesIds []int64, excludeMask []bool, labelName string, labelValues []string) {
 	currentSeriesId := int64(0)
 	for i, seriesId := range seriesIds {
 		if currentSeriesId == seriesId {
@@ -262,7 +233,7 @@ func updateSeriesLabels(seriesLabels map[int64][]string, seriesIds []int64, mask
 			continue
 		}
 		currentSeriesId = seriesIds[i]
-		if len(mask) == 0 || mask[i] {
+		if len(excludeMask) == 0 || !excludeMask[i] {
 			seriesLabels[seriesIds[i]] = append(seriesLabels[seriesIds[i]], labelName, labelValues[i])
 		}
 	}
@@ -295,7 +266,7 @@ func loadSeriesIds(root *parquet.Column) ([]int64, error) {
 		}
 
 		valReader := page.Values()
-		fmt.Printf("Page has %d values, size %d\n", page.NumValues(), page.Size())
+		// fmt.Printf("Page has %d values, size %d\n", page.NumValues(), page.Size())
 
 		// Read parquet.Value:
 		nextSeriesIds := make([]parquet.Value, page.NumValues())
@@ -338,7 +309,7 @@ func loadLabelValues(root *parquet.Column, labelName string) ([]string, error) {
 		}
 
 		valReader := page.Values()
-		fmt.Printf("Page has %d values, size %d\n", page.NumValues(), page.Size())
+		// fmt.Printf("Page has %d values, size %d\n", page.NumValues(), page.Size())
 
 		// Read parquet.Value:
 		nextLabelValues := make([]parquet.Value, page.NumValues())
@@ -354,9 +325,10 @@ func loadLabelValues(root *parquet.Column, labelName string) ([]string, error) {
 	return labelValues, nil
 }
 
-// filterLabel filters a label column based on matchers on the label. It returns a mask of rows that match the label.
+// filterLabel filters a label column based on matchers on the label.
+// The input mask is updated and returned for rows that match the label.
 // If include is true we also return the labels themselves.
-func filterLabel(root *parquet.Column, labelName string, include bool, matchers ...*labels.Matcher) ([]bool, []string, error) {
+func filterLabel(root *parquet.Column, labelName string, include bool, excludeMask []bool, matchers ...*labels.Matcher) ([]bool, []string, error) {
 	cols := root.Columns()
 	var col *parquet.Column
 	for _, c := range cols {
@@ -373,7 +345,6 @@ func filterLabel(root *parquet.Column, labelName string, include bool, matchers 
 	}
 	pages := col.Pages()
 	matchingSymbols := []int32{}
-	rowMask := []bool{}
 	rowOffset := 0
 	var labelValues []string
 	for {
@@ -386,16 +357,23 @@ func filterLabel(root *parquet.Column, labelName string, include bool, matchers 
 			panic(err)
 		}
 
-		rowMask = append(rowMask, make([]bool, page.NumValues())...)
-
 		symbols := page.Dictionary()
 		matchingSymbols := matchingSymbols[:0]
 		for i:=0; i<symbols.Len(); i++ {
 			labelValue := symbols.Index(int32(i)).String()
-			fmt.Printf("Label value: %s for idx %d\n", labelValue, i)
+			// fmt.Printf("Label value: %s for idx %d\n", labelValue, i)
 			if matchLabel(labelValue, matchers...) {
 				matchingSymbols = append(matchingSymbols, int32(i))
 			}
+		}
+
+		if len(matchingSymbols) == 0 {
+			// No symbols matched the label selector, mark all rows for exclude.
+			for i := int64(0); i < page.NumValues(); i++ {
+				excludeMask[rowOffset] = true
+				rowOffset++
+			}
+			continue
 		}
 
 		data := page.Data()
@@ -404,17 +382,21 @@ func filterLabel(root *parquet.Column, labelName string, include bool, matchers 
 			if include {
 				labelValues = append(labelValues, symbols.Index(sym).String())
 			}
-			if slices.Contains(matchingSymbols, sym) {
-				rowMask[rowOffset] = true
+			// If row is not already excluded, only then check if it matches the label selector.
+			if !excludeMask[rowOffset] {
+				if !slices.Contains(matchingSymbols, sym) {
+					// Row does not match the label selector, mark it for exclude.
+					excludeMask[rowOffset] = true
+				}
 			}
 			rowOffset++
 		}
 
 	}
 
-	fmt.Printf("Row mask: %v\n", rowMask)
+	// fmt.Printf("Row excludeMask: %v\n", excludeMask)
 
-	return rowMask, labelValues, nil
+	return excludeMask, labelValues, nil
 }
 
 func matchLabel(labelValue string, matchers ...*labels.Matcher) bool {
@@ -469,9 +451,9 @@ type columnarSeriesSet struct {
 	builder labels.ScratchBuilder
 	err     error
 
-	seriesIds []int64
-	mask      []bool
-	seriesPos int
+	seriesIds   []int64
+	excludeMask []bool
+	seriesPos   int64
 }
 
 func (b *columnarSeriesSet) At() storage.Series {
@@ -483,8 +465,6 @@ func (b *columnarSeriesSet) At() storage.Series {
 
 type rowsSeries struct {
 	labels      labels.Labels
-	//columnIndex map[string]int
-	//rows        []parquet.Row
 	metas       []chunks.Meta
 }
 
@@ -523,19 +503,7 @@ func (r *rowsSeries) Iterator(it chunkenc.Iterator) chunkenc.Iterator {
 	its := make([]chunkenc.Iterator, 0, len(r.metas))
 	// metas := make([]chunks.Meta, len(r.rows))
 	for _, meta := range r.metas {
-
-		//chnk, err := pool.Get(chunkenc.EncXOR, row[r.columnIndex["x_chunk"]].ByteArray())
-		// if err != nil {
-		// 	panic(err)
-		// }
 		its = append(its, meta.Chunk.Iterator(nil))
-		// meta := chunks.Meta{
-		// 	Ref:     chunks.ChunkRef(i),
-		// 	MinTime: 0, // TODO
-		// 	MaxTime: 0, // TODO
-		// 	Chunk:   chnk,
-		// }
-
 	}
 
 	return newConsecutiveChunkIterators(its)
@@ -547,29 +515,25 @@ func (r *rowsSeries) Labels() labels.Labels {
 }
 
 func (b *columnarSeriesSet) Next() bool {
-	if b.seriesPos >= len(b.seriesIds) {
+	if int(b.seriesPos) >= len(b.seriesIds) {
 		return false
 	}
 
 	// Skip series that don't match the mask.
-	if len(b.mask) > 0 {
-		for b.seriesPos < len(b.seriesIds) && !b.mask[b.seriesPos] {
-			// TODO: skip chunks instead.
-			_, err := b.chunkIterator.Next()
-			if err != nil {
-				panic(err)
-			}
+	if len(b.excludeMask) > 0 {
+		for int(b.seriesPos) < len(b.seriesIds) && b.excludeMask[b.seriesPos] {
 			b.seriesPos++
 		}
 		// Not found.
-		if b.seriesPos >= len(b.seriesIds) {
+		if int(b.seriesPos) >= len(b.seriesIds) {
 			return false
 		}
+		b.chunkIterator.SeekToRow(b.seriesPos)
 	}
 
 	b.curr.metas = []chunks.Meta{}
 	nextSeriesId := b.seriesIds[b.seriesPos]
-	for b.seriesPos < len(b.seriesIds) && nextSeriesId == b.seriesIds[b.seriesPos] {
+	for int(b.seriesPos) < len(b.seriesIds) && nextSeriesId == b.seriesIds[b.seriesPos] {
 		chk, err := b.chunkIterator.Next()
 		if err != nil {
 			panic(err)
@@ -587,34 +551,6 @@ func (b *columnarSeriesSet) Next() bool {
 		b.builder.Add(b.seriesLabels[nextSeriesId][i], b.seriesLabels[nextSeriesId][i+1])
 	}
 	b.curr.labels = b.builder.Labels()
-
-	// if b.columnIndex == nil {
-	// 	b.columnIndex = make(map[string]int, len(b.schema.Columns()))
-	// 	for i, col := range b.schema.Columns() {
-	// 		b.columnIndex[col[0]] = i
-	// 	}
-	// }
-	// if b.rowIdx == len(b.rows) {
-	// 	return false
-	// }
-	// seriesID := b.rows[b.rowIdx][b.columnIndex["x_series_id"]].Int64()
-	// from := b.rowIdx
-	// to := from
-	// for to < len(b.rows) && b.rows[to][b.columnIndex["x_series_id"]].Int64() == seriesID {
-	// 	to++
-	// }
-	// b.builder.Reset()
-	// for l, i := range b.columnIndex {
-	// 	if strings.HasPrefix(l, "l_") {
-	// 		b.builder.Add(l[2:], string(b.rows[from][i].ByteArray()))
-	// 	}
-	// }
-	// b.curr = rowsSeries{
-	// 	labels:      b.builder.Labels(),
-	// 	rows:        b.rows[from:to],
-	// 	columnIndex: b.columnIndex,
-	// }
-	// b.rowIdx = to
 
 	return true
 }
@@ -643,20 +579,9 @@ func (c *chunkColumnIterator) Next() (chunkenc.Chunk, error) {
 		return c.currentChunk()
 	}
 
-	// Init the pages if not already done.
-	if c.chunkPages == nil {
-		cols := c.pf.Root().Columns()
-		var col *parquet.Column
-		for _, c := range cols {
-			if c.Name() == "x_chunk" {
-				col = c
-				break
-			}
-		}
-		if col == nil {
-			panic("x_chunk not found")
-		}
-		c.chunkPages = col.Pages()
+	err := c.ensurePages()
+	if err != nil {
+		return nil, err
 	}
 
 	// We need to read the next page.
@@ -669,7 +594,7 @@ func (c *chunkColumnIterator) Next() (chunkenc.Chunk, error) {
 	}
 
 	valReader := page.Values()
-	fmt.Printf("Page has %d values, size %d\n", page.NumValues(), page.Size())
+	// fmt.Printf("Page has %d values, size %d\n", page.NumValues(), page.Size())
 	if c.chunkBuffer == nil || int64(cap(c.chunkBuffer)) < page.Size() {
 		c.chunkBuffer = make([]byte, page.Size())
 	}
@@ -678,13 +603,32 @@ func (c *chunkColumnIterator) Next() (chunkenc.Chunk, error) {
 	if !ok {
 		panic("not a ByteArrayReader")
 	}
-	n, err := binaryReader.ReadByteArrays(c.chunkBuffer)
+	_, err = binaryReader.ReadByteArrays(c.chunkBuffer)
 	c.chunkBufferPos = 0
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
-	fmt.Printf("Read %d chunks\n", n)
 	return c.currentChunk()
+}
+
+func (c *chunkColumnIterator) ensurePages() error {
+	// Init the pages if not already done.
+	if c.chunkPages != nil {
+		return nil
+	}
+	cols := c.pf.Root().Columns()
+	var col *parquet.Column
+	for _, c := range cols {
+		if c.Name() == "x_chunk" {
+			col = c
+			break
+		}
+	}
+	if col == nil {
+		return errors.New("x_chunk not found")
+	}
+	c.chunkPages = col.Pages()
+	return nil
 }
 
 func (c *chunkColumnIterator) currentChunk() (chunkenc.Chunk, error) {
@@ -700,7 +644,9 @@ func (c *chunkColumnIterator) currentChunk() (chunkenc.Chunk, error) {
 }
 
 // Seek to row.
-func (c *chunkColumnIterator) Seek(row int) error {
-	// Will have to implement for when we filter.
-	return nil
+func (c *chunkColumnIterator) SeekToRow(row int64) error {
+	if err := c.ensurePages(); err != nil {
+		return err
+	}
+	return c.chunkPages.SeekToRow(row)
 }

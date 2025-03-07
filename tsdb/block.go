@@ -338,6 +338,8 @@ type Block struct {
 	indexr     IndexReader
 	tombstones tombstones.Reader
 
+	columnIndex *columnar.Index
+
 	logger *slog.Logger
 
 	numBytesChunks    int64
@@ -363,6 +365,14 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 		return nil, err
 	}
 
+	var columnIndex *columnar.Index
+	if meta.Compaction.IsParquet() {
+		columnIndex, err = columnar.ReadIndex(dir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var cr ChunkReader
 
 	if meta.Compaction.IsParquet() {
@@ -379,7 +389,7 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 	var ir IndexReader
 
 	if meta.Compaction.IsParquet() {
-		ir, err = columnar.NewColumnarIndexReader(dir)
+		ir, err = columnar.NewColumnarIndexReader(dir, columnIndex)
 	} else {
 		decoder := index.DecodePostingsRaw
 		if postingsDecoderFactory != nil {
@@ -405,6 +415,7 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 		chunkr:            cr,
 		indexr:            ir,
 		tombstones:        tr,
+		columnIndex:       columnIndex,
 		symbolTableSize:   ir.SymbolTableSize(),
 		logger:            logger,
 		numBytesChunks:    cr.Size(),
