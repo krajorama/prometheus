@@ -2127,8 +2127,11 @@ func (db *DB) Querier(mint, maxt int64) (_ storage.Querier, err error) {
 
 	for _, b := range blocks {
 		if b.Meta().Compaction.IsParquet() {
-
-			q, err := NewColumnarQuerier(filepath.Join(db.dir, b.Meta().ULID.String()), mint, maxt, []string{"dim_0"})
+			block, ok := b.(*Block)
+			if !ok {
+				return nil, fmt.Errorf("block %s is not a *Block", b)
+			}
+			q, err := NewColumnarQuerier(filepath.Join(db.dir, b.Meta().ULID.String()), block.columnIndex, mint, maxt, []string{"dim_0"})
 			if err != nil {
 				panic(err)
 			}

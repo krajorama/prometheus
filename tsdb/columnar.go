@@ -42,16 +42,12 @@ type columnarQuerier struct {
 
 	includeLabels []string
 
-	ix columnar.Index
+	ix *columnar.Index
 
 	parquetFile *os.File
 }
 
-func NewColumnarQuerier(dir string, mint, maxt int64, includeLabels []string) (*columnarQuerier, error) {
-	ix, err := columnar.ReadIndex(dir)
-	if err != nil {
-		return nil, err
-	}
+func NewColumnarQuerier(dir string, ix *columnar.Index, mint, maxt int64, includeLabels []string) (*columnarQuerier, error) {
 	return &columnarQuerier{
 		dir:           dir,
 		mint:          mint,

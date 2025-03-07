@@ -23,12 +23,19 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
+	"github.com/prometheus/prometheus/tsdb/columnar"
 )
 
 func TestColumnarQuerier(t *testing.T) {
+	blockDir := "testdata/01JNKZDF5RP1X06VKBC2WMZJ8K"
+
+	ix, err := columnar.ReadIndex(blockDir)
+	require.NoError(t, err)
+	require.NotNil(t, ix)
+
 	from := int64(1733828454000)
 	to := int64(1733829686000)
-	q, err := NewColumnarQuerier("testdata/01JNKZDF5RP1X06VKBC2WMZJ8K", from, to, []string{"dim_0"})
+	q, err := NewColumnarQuerier(blockDir, ix, from, to, []string{"dim_0"})
 	require.NoError(t, err)
 	defer q.Close()
 

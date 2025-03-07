@@ -34,21 +34,16 @@ import (
 
 // ColumnarIndexReader implements the tsdb.IndexReader interface.
 type ColumnarIndexReader struct {
-	ix  Index
+	ix  *Index
 	dir string
 }
 
 // The columnar index reader.
 
 // NewColumnarIndexReader (dir string).
-func NewColumnarIndexReader(dir string) (*ColumnarIndexReader, error) {
-	index, err := ReadIndex(dir)
-	if err != nil {
-		return nil, err
-	}
-
+func NewColumnarIndexReader(dir string, ix *Index) (*ColumnarIndexReader, error) {
 	return &ColumnarIndexReader{
-		ix:  index,
+		ix:  ix,
 		dir: dir,
 	}, nil
 }
