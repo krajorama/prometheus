@@ -426,6 +426,10 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 	return pb, nil
 }
 
+func (pb *Block) ColumnIndex() *columnar.Index {
+	return pb.columnIndex
+}
+
 // Close closes the on-disk block. It blocks as long as there are readers reading from the block.
 func (pb *Block) Close() error {
 	pb.mtx.Lock()

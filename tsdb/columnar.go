@@ -575,7 +575,8 @@ type chunkColumnIterator struct {
 
 // Next return the next chunk or nil if there are no more chunks.
 func (c *chunkColumnIterator) Next() (chunkenc.Chunk, error) {
-	if c.chunkBufferPos < len(c.chunkBuffer) {
+	// Sometimes there's an empty array at the end of a page.
+	if c.chunkBufferPos < len(c.chunkBuffer)-4 {
 		return c.currentChunk()
 	}
 

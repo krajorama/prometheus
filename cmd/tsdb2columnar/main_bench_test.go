@@ -11,18 +11,22 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
+	"github.com/prometheus/prometheus/tsdb/columnar"
 )
+
+const (
+	numSeries   = 1
+	dimensions  = 1
+	cardinality = 100_000
+)
+
 
 func BenchmarkColumnarQuerier(b *testing.B) {
 	tmpDir := b.TempDir()
 
 	logger := promslog.NewNopLogger()
 
-	var (
-		numSeries   = 1
-		dimensions  = 1
-		cardinality = 100_000
-	)
 	blockDir, err := createTSDBBlock(numSeries, tmpDir, dimensions, cardinality, 0, logger)
 	require.NoError(b, err)
 
@@ -53,7 +57,12 @@ func (pb *queryableBlock) Querier(mint, maxt int64) (storage.Querier, error) {
 type columnarQueryableBlockFromDir string
 
 func (dir columnarQueryableBlockFromDir) Querier(mint, maxt int64) (storage.Querier, error) {
-	return tsdb.NewColumnarQuerier(string(dir), mint, maxt, nil)
+	ix, err := columnar.ReadIndex(string(dir))
+	if err != nil {
+		return nil, err
+	}
+
+	return tsdb.NewColumnarQuerier(string(dir), ix, mint, maxt, nil)
 }
 
 func benchmarkXXXSelect(b *testing.B, queryable storage.Queryable) {
@@ -67,7 +76,18 @@ func benchmarkXXXSelect(b *testing.B, queryable storage.Queryable) {
 	var series int
 	for i := 0; i < b.N; i++ {
 		ss := q.Select(context.Background(), false, nil, matcher)
+		var it chunkenc.Iterator
 		for ss.Next() {
+			s := ss.At()
+			// Call the function to get labels.
+			s.Labels()
+			it := s.Iterator(it)
+			for it.Next() != chunkenc.ValNone {
+				// Iteries over all samples.
+			}
+			if it.Err() != nil {
+				b.Fatal(it.Err())
+			}
 			series++
 		}
 		if err := ss.Err(); err != nil {
